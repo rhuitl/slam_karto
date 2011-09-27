@@ -36,6 +36,9 @@
 #include "sensor_msgs/LaserScan.h"
 #include "nav_msgs/GetMap.h"
 
+#include <dynamic_reconfigure/server.h>
+#include <karto/KartoConfig.h>
+
 #include "karto/Mapper.h"
 
 #include "spa_solver.h"
@@ -69,7 +72,8 @@ class SlamKarto
     void publishTransform();
     void publishLoop(double transform_publish_period);
     void publishGraphVisualization();
-    
+    void reconfigurationCallback(karto::KartoConfig &config, uint32_t level);
+
     // ROS handles
     ros::NodeHandle node_;
     tf::TransformListener tf_;
@@ -80,6 +84,8 @@ class SlamKarto
     ros::Publisher marker_publisher_;
     ros::Publisher sstm_;
     ros::ServiceServer ss_;
+    dynamic_reconfigure::Server<karto::KartoConfig>* server_;
+    karto::KartoConfig config_;
 
     // The map that will be published / send to service callers
     nav_msgs::GetMap::Response map_;
@@ -163,6 +169,11 @@ SlamKarto::SlamKarto() :
   // Set solver to be used in loop closure
   solver_ = new SpaSolver();
   mapper_->SetScanSolver(solver_);
+
+  // Callback for dynamic reconfiguration
+  server_ = new dynamic_reconfigure::Server<karto::KartoConfig>();
+  server_->setCallback(boost::bind(&SlamKarto::reconfigurationCallback, this, _1, _2));
+
 }
 
 SlamKarto::~SlamKarto()
@@ -419,6 +430,11 @@ SlamKarto::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
     return;
   }
 
+  // Drop scans when user requested that no scans should be added. Can be useful
+  // if we have to wait for some external event (e.g., odometry stabilizing).
+  if(!config_.add_scans)
+    return;
+
   karto::Pose2 odom_pose;
   if(addScan(laser, scan, odom_pose))
   {
@@ -429,8 +445,8 @@ SlamKarto::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
 
     publishGraphVisualization();
 
-    if(!got_map_ || 
-       (scan->header.stamp - last_map_update) > map_update_interval_)
+    if(config_.update_map &&
+       (!got_map_ || (scan->header.stamp - last_map_update) > map_update_interval_))
     {
       if(updateMap())
       {
@@ -601,6 +617,20 @@ SlamKarto::mapCallback(nav_msgs::GetMap::Request  &req,
   else
     return false;
 }
+
+void
+SlamKarto::reconfigurationCallback(karto::KartoConfig &config, uint32_t level)
+{
+  if(config_.add_scans != config.add_scans)
+    ROS_INFO("Incoming laser scans are %s.", config.add_scans
+             ? "used" : "NOT used (GMapping is paused)");
+
+  if(config_.update_map != config.update_map)
+    ROS_INFO("Map updates are %s.", config.update_map ? "enabled" : "disabled");
+
+  config_ = config;
+}
+
 
 int
 main(int argc, char** argv)

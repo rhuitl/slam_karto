@@ -19,6 +19,11 @@
   <depend package="message_filters"/>
   <depend package="eigen"/>
 
+  <!-- dynamic reconfiguration -->
+  <depend package="rospy"/>
+  <depend package="dynamic_reconfigure"/>
+  <depend package="driver_base"/>
+
   <export>
     <cpp cflags="-I${prefix}/karto/include" lflags="-Wl,-rpath,${prefix}/karto/lib -L${prefix}/karto/lib -lOpenKarto"/>
   </export>

@@ -16,3 +16,9 @@ include_directories(${PROJECT_SOURCE_DIR}/karto/include)
 link_directories(${PROJECT_SOURCE_DIR}/karto/lib)
 rosbuild_add_executable(bin/slam_karto src/slam_karto.cpp src/spa_solver.cpp)
 target_link_libraries(bin/slam_karto OpenKarto)
+
+# Dynamic reconfiguration to enable/disable incorporation of laser scans and
+# map updates at runtime.
+rosbuild_find_ros_package(dynamic_reconfigure)
+include(${dynamic_reconfigure_PACKAGE_PATH}/cmake/cfgbuild.cmake)
+gencfg()
