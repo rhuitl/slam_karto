@@ -1,0 +1,96 @@
+diff -uw -r KartoSDK-2.1.3.6482-Linux-64//include/Karto/Environment.h ../KartoSDK-2.1.3.6482-Linux-64/include/Karto/Environment.h
+--- KartoSDK-2.1.3.6482-Linux-64//include/Karto/Environment.h	2011-04-22 23:16:17.000000000 +0200
++++ ../KartoSDK-2.1.3.6482-Linux-64/include/Karto/Environment.h	2011-09-28 18:51:19.762065002 +0200
+@@ -162,7 +162,7 @@
+      * @param rArgument argument name
+      * @return true if set, false otherwise
+      */
+-    static const kt_bool HasArgument(const karto::String& rArgument);
++    static kt_bool HasArgument(const karto::String& rArgument);
+ 
+     /**
+      * Must be called when exiting application to clean up resources used by Karto.
+diff -uw -r KartoSDK-2.1.3.6482-Linux-64//include/OpenKarto/Geometry.h ../KartoSDK-2.1.3.6482-Linux-64/include/OpenKarto/Geometry.h
+--- KartoSDK-2.1.3.6482-Linux-64//include/OpenKarto/Geometry.h	2011-04-23 02:55:13.000000000 +0200
++++ ../KartoSDK-2.1.3.6482-Linux-64/include/OpenKarto/Geometry.h	2011-09-28 18:54:28.372064999 +0200
+@@ -2910,7 +2910,7 @@
+      * Red component of this color
+      * @return red component
+      */
+-    const kt_double GetRed() const
++    kt_double GetRed() const
+     {
+       return m_Red;
+     }
+@@ -2928,7 +2928,7 @@
+      * Green component of this color
+      * @return green component
+      */
+-    const kt_double GetGreen() const
++    kt_double GetGreen() const
+     {
+       return m_Green;
+     }
+@@ -2946,7 +2946,7 @@
+      * Blue component of this color
+      * @return blue component
+      */
+-    const kt_double GetBlue() const
++    kt_double GetBlue() const
+     {
+       return m_Blue;
+     }
+@@ -2964,7 +2964,7 @@
+      * Alpha value of this color
+      * @return alpha value
+      */
+-    const kt_double GetAlpha() const
++    kt_double GetAlpha() const
+     {
+       return m_Alpha;
+     }
+@@ -3062,6 +3062,7 @@
+        * Copy constructor
+        */
+       PointGps(const PointGps& rOther)
++        : karto::Vector2d()
+       {
+         SetX(rOther.GetLongitude());
+         SetY(rOther.GetLatitude());
+diff -uw -r KartoSDK-2.1.3.6482-Linux-64//include/OpenKarto/OpenMapper.h ../KartoSDK-2.1.3.6482-Linux-64/include/OpenKarto/OpenMapper.h
+--- KartoSDK-2.1.3.6482-Linux-64//include/OpenKarto/OpenMapper.h	2011-07-06 04:58:42.000000000 +0200
++++ ../KartoSDK-2.1.3.6482-Linux-64/include/OpenKarto/OpenMapper.h	2011-09-28 20:05:06.862064999 +0200
+@@ -248,7 +248,7 @@
+      * Gets the object associated with this vertex
+      * @return the object
+      */
+-    inline T GetVertexObject() const
++    inline const T& GetVertexObject() const
+     {
+       return m_pObject;
+     }
+Only in ../KartoSDK-2.1.3.6482-Linux-64/include/OpenKarto: OpenMapper.h.gch
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Explorer: Sample_Explorer_tutorial1
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Localizer: Sample_Localizer_tutorial1
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Localizer: Sample_Localizer_tutorial2
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Localizer: Sample_Localizer_tutorial3
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial0
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial1
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial10
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial11
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial12
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial13
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial14
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial15
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial16
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial2
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_Tutorial2.kxd
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial3
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial4
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial5
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_Tutorial5.png
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial6
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial7
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial8
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/Mapper: Sample_Mapper_tutorial9
+Only in ../KartoSDK-2.1.3.6482-Linux-64/samples/C++/PathPlanner: Sample_PathPlanner_tutorial1
