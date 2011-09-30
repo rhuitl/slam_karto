@@ -16,7 +16,7 @@
  */
 
 #include "spa_solver.h"
-#include <karto/Karto.h>
+#include <Karto/Mapper/Mapper.h>
 
 #include "ros/console.h"
 
@@ -32,7 +32,7 @@ SpaSolver::~SpaSolver()
 
 void SpaSolver::Clear()
 {
-  corrections.clear();
+  corrections.Clear();
 }
 
 const karto::ScanSolver::IdPoseVector& SpaSolver::GetCorrections() const
@@ -42,7 +42,7 @@ const karto::ScanSolver::IdPoseVector& SpaSolver::GetCorrections() const
 
 void SpaSolver::Compute()
 {
-  corrections.clear();
+  corrections.Clear();
 
   typedef std::vector<sba::Node2d, Eigen::aligned_allocator<sba::Node2d> > NodeVector;
 
@@ -53,21 +53,21 @@ void SpaSolver::Compute()
   forEach(NodeVector, &nodes)
   {
     karto::Pose2 pose(iter->trans(0), iter->trans(1), iter->arot);
-    corrections.push_back(std::make_pair(iter->nodeId, pose));
+    corrections.Add(karto::Pair<kt_int32s, karto::Pose2>(iter->nodeId, pose));
   }
 }
 
 void SpaSolver::AddNode(karto::Vertex<karto::LocalizedRangeScan>* pVertex)
 {
-  karto::Pose2 pose = pVertex->GetObject()->GetCorrectedPose();
+  karto::Pose2 pose = pVertex->GetVertexObject().GetCorrectedPose();
   Eigen::Vector3d vector(pose.GetX(), pose.GetY(), pose.GetHeading());
-  m_Spa.addNode(vector, pVertex->GetObject()->GetUniqueId());
+  m_Spa.addNode(vector, pVertex->GetVertexObject().GetUniqueId());
 }
 
 void SpaSolver::AddConstraint(karto::Edge<karto::LocalizedRangeScan>* pEdge)
 {
-  karto::LocalizedRangeScan* pSource = pEdge->GetSource()->GetObject();
-  karto::LocalizedRangeScan* pTarget = pEdge->GetTarget()->GetObject();
+  const karto::LocalizedRangeScan& source = pEdge->GetSource()->GetVertexObject();
+  const karto::LocalizedRangeScan& target = pEdge->GetTarget()->GetVertexObject();
   karto::LinkInfo* pLinkInfo = (karto::LinkInfo*)(pEdge->GetLabel());
 
   karto::Pose2 diff = pLinkInfo->GetPoseDifference();
@@ -82,5 +82,5 @@ void SpaSolver::AddConstraint(karto::Edge<karto::LocalizedRangeScan>* pEdge)
   m(1,2) = m(2,1) = precisionMatrix(1,2);
   m(2,2) = precisionMatrix(2,2);
 
-  m_Spa.addConstraint(pSource->GetUniqueId(), pTarget->GetUniqueId(), mean, m);
+  m_Spa.addConstraint(source.GetUniqueId(), target.GetUniqueId(), mean, m);
 }

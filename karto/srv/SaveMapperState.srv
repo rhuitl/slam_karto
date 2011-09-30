@@ -1,0 +1,3 @@
+# Save the mapper state to a file
+string filename
+---

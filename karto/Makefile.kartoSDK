@@ -1,0 +1,33 @@
+#
+# unused, just unpack KartoSDK-2.1.3.6482-Linux-64.tar.gz in slam_karto/karto.
+#
+
+all: installed
+
+KARTO_DIR = build/KartoSDK-2.1.3.6482-Linux-64
+KARTO_TAR = KartoSDK-2.1.3.6482-Linux-64.tar.gz
+
+CMAKE = cmake 
+CMAKE_ARGS = -D CMAKE_BUILD_TYPE=RELEASE \
+             -D CMAKE_INSTALL_PREFIX=`rospack find karto`/karto
+
+installed: wiped $(KARTO_DIR)
+	mkdir -p $(KARTO_DIR)/build
+	cd $(KARTO_DIR)/build && $(CMAKE) $(CMAKE_ARGS) ../source
+	cd $(KARTO_DIR)/build && make install
+	touch installed
+
+$(KARTO_DIR): $(KARTO_TAR)
+	cd build && tar xf ../$(KARTO_TAR)
+
+wipe: clean
+	rm -rf $(KARTO_DIR)
+
+wiped: Makefile.kartoSDK
+	make -f Makefile.kartoSDK wipe
+	touch wiped
+
+clean:
+	-cd $(KARTO_DIR)/build && make clean
+	-rm -rf karto installed patched
+

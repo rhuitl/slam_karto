@@ -4,18 +4,27 @@ rosbuild_init(karto)
 
 set(ROS_BUILD_TYPE Release)
 
-# Build Karto
-execute_process(COMMAND cmake -E chdir ${PROJECT_SOURCE_DIR} make -f Makefile.karto
-                RESULT_VARIABLE _make_failed)
-if(_make_failed)
-  message(FATAL_ERROR "Build of Karto failed")
-endif(_make_failed)
+## Build Karto
+#execute_process(COMMAND cmake -E chdir ${PROJECT_SOURCE_DIR} make -f Makefile.kartoSDK
+#                RESULT_VARIABLE _make_failed)
+#if(_make_failed)
+#  message(FATAL_ERROR "Build of Karto failed")
+#endif(_make_failed)
+
+#uncomment if you have defined messages
+#rosbuild_genmsg()
+#uncomment if you have defined services
+rosbuild_gensrv()
 
 # Build the ROS wrapper
-include_directories(${PROJECT_SOURCE_DIR}/karto/include)
-link_directories(${PROJECT_SOURCE_DIR}/karto/lib)
-rosbuild_add_executable(bin/slam_karto src/slam_karto.cpp src/spa_solver.cpp)
-target_link_libraries(bin/slam_karto OpenKarto)
+include_directories(${PROJECT_SOURCE_DIR}/KartoSDK-2.1.3.6482-Linux-64/include)
+link_directories(${PROJECT_SOURCE_DIR}/KartoSDK-2.1.3.6482-Linux-64/lib)
+#rosbuild_add_executable(bin/slam_karto src/slam_karto.cpp src/spa_solver.cpp)
+rosbuild_add_executable(bin/slam_karto src/slam_karto.cpp)
+target_link_libraries(bin/slam_karto Karto_64)
+
+rosbuild_add_executable(bin/slam_ctl src/slam_ctl.cpp)
+
 
 # Dynamic reconfiguration to enable/disable incorporation of laser scans and
 # map updates at runtime.

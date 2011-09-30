@@ -1,0 +1,3 @@
+# Load the mapper state from a file
+string filename
+---
