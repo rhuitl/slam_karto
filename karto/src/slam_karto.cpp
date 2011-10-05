@@ -14,7 +14,7 @@
  *
  */
 
-/* Author: Brian Gerkey */
+/* Author: Brian Gerkey, Robert Huitl */
 
 /**
 
@@ -41,9 +41,7 @@
 #include <karto/SaveMapperState.h>
 #include <karto/LoadMapperState.h>
 
-#include <Karto/Mapper/Mapper.h>
-#include <Karto/DatasetWriter.h>
-//#include "spa_solver.h"
+#include <Karto/Karto.h>
 
 #include <boost/thread.hpp>
 
@@ -66,9 +64,8 @@ class SlamKarto
 
   private:
     bool getOdomPose(karto::Pose2& karto_pose, const ros::Time& t);
-    karto::LaserRangeFinder* getLaser(const sensor_msgs::LaserScan::ConstPtr& scan);
-    bool addScan(karto::LaserRangeFinder* laser,
-                 const sensor_msgs::LaserScan::ConstPtr& scan,
+    bool addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan);
+    bool addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
                  karto::Pose2& karto_pose);
     bool updateMap();
     void publishTransform();
@@ -88,19 +85,19 @@ class SlamKarto
     // ROS handles
     ros::NodeHandle node_;
     tf::TransformListener tf_;
-    tf::TransformBroadcaster* tfB_;
+    tf::TransformBroadcaster tfB_;
     message_filters::Subscriber<sensor_msgs::LaserScan>* scan_filter_sub_;
     tf::MessageFilter<sensor_msgs::LaserScan>* scan_filter_;
     ros::Publisher sst_;
     ros::Publisher marker_publisher_;
     ros::Publisher sstm_;
     ros::ServiceServer ss_;
-    dynamic_reconfigure::Server<karto::KartoConfig>* server_;
+    dynamic_reconfigure::Server<karto::KartoConfig> server_;
     karto::KartoConfig config_;
     ros::ServiceServer saveMapperStateService_;
     ros::ServiceServer loadMapperStateService_;
 
-    // The map that will be published / send to service callers
+    // The map that will be published / sent to service callers
     nav_msgs::GetMap::Response map_;
 
     // Storage for ROS parameters
@@ -114,12 +111,8 @@ class SlamKarto
     boost::mutex map_to_odom_mutex_;
 
     // Karto bookkeeping
-    karto::mapper::MapperPtr mapper_; //<-- crash on release?
-    karto::ObjectList* objectlist_;
-    //SpaSolver* solver_;
-    //karto::SmartPointer<SpaSolver> solver_;
-    std::map<std::string, karto::LaserRangeFinder*> lasers_;
-    std::map<std::string, bool> lasers_inverted_;
+    karto::mapper::MapperPtr mapper_;
+    std::map<std::string, bool> lasers_added_to_karto_;
 
     // Internal state
     bool got_map_;
@@ -127,7 +120,6 @@ class SlamKarto
     boost::thread* transform_thread_;
     tf::Transform map_to_odom_;
     unsigned marker_count_;
-    bool inverted_laser_;
 };
 
 SlamKarto::SlamKarto() :
@@ -162,7 +154,6 @@ SlamKarto::SlamKarto() :
   private_nh_.param("transform_publish_period", transform_publish_period, 0.05);
 
   // Set up advertisements and subscriptions
-  tfB_ = new tf::TransformBroadcaster();
   sst_ = node_.advertise<nav_msgs::OccupancyGrid>("map", 1, true);
   sstm_ = node_.advertise<nav_msgs::MapMetaData>("map_metadata", 1, true);
   ss_ = node_.advertiseService("dynamic_map", &SlamKarto::mapCallback, this);
@@ -178,16 +169,16 @@ SlamKarto::SlamKarto() :
 
   // Initialize Karto structures
   mapper_ = karto::mapper::CreateDefaultMapper();
-  objectlist_ = new karto::ObjectList();
 
-  // Set solver to be used in loop closure
-  //solver_ = new SpaSolver();
-  //mapper_->SetScanSolver(solver_);
-//  solver_ = NULL;
+  // Initialize configuration object. The real defaults will always be set by
+  // the first reconfiguration callback (which is called inside setCallback()
+  // and sets the parameters from the launch file).
+  config_.add_scans = false;
+  config_.update_map = false;
 
   // Callback for dynamic reconfiguration
-  server_ = new dynamic_reconfigure::Server<karto::KartoConfig>();
-  server_->setCallback(boost::bind(&SlamKarto::reconfigurationCallback, this, _1, _2));
+  //server_ = new dynamic_reconfigure::Server<karto::KartoConfig>();
+  server_.setCallback(boost::bind(&SlamKarto::reconfigurationCallback, this, _1, _2));
 
   // Register services to save and restore the mapper state
   saveMapperStateService_ = node_.advertiseService("slam_karto/SaveMapperState",
@@ -195,6 +186,9 @@ SlamKarto::SlamKarto() :
   loadMapperStateService_ = node_.advertiseService("slam_karto/LoadMapperState",
     LoadMapperStateCallback(boost::bind(&SlamKarto::loadMapperState, this, _1, _2)));
 
+  // Send out map (even if it's empty) so RViz can reflect the current state
+  //updateMap();
+  // TODO send out an empty map. Not so easy after all.
 }
 
 SlamKarto::~SlamKarto()
@@ -208,9 +202,6 @@ SlamKarto::~SlamKarto()
     delete scan_filter_;
   if (scan_filter_sub_)
     delete scan_filter_sub_;
-  delete objectlist_;
-  // TODO: delete the pointers in the lasers_ map; not sure whether or not
-  // I'm supposed to do that.
 }
 
 void
@@ -232,14 +223,14 @@ SlamKarto::publishTransform()
 {
   boost::mutex::scoped_lock(map_to_odom_mutex_);
   ros::Time tf_expiration = ros::Time::now() + ros::Duration(0.05);
-  tfB_->sendTransform(tf::StampedTransform (map_to_odom_, ros::Time::now(), map_frame_, odom_frame_));
+  tfB_.sendTransform(tf::StampedTransform (map_to_odom_, ros::Time::now(), map_frame_, odom_frame_));
 }
 
-karto::LaserRangeFinder*
-SlamKarto::getLaser(const sensor_msgs::LaserScan::ConstPtr& scan)
+bool
+SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
 {
   // Check whether we know about this laser yet
-  if(lasers_.find(scan->header.frame_id) == lasers_.end())
+  if(lasers_added_to_karto_.find(scan->header.frame_id) == lasers_added_to_karto_.end())
   {
     // New laser; need to create a Karto device for it.
 
@@ -257,7 +248,7 @@ SlamKarto::getLaser(const sensor_msgs::LaserScan::ConstPtr& scan)
     {
       ROS_WARN("Failed to compute laser pose, aborting initialization (%s)",
 	       e.what());
-      return NULL;
+      return false;
     }
 
     double yaw = tf::getYaw(laser_pose.getRotation());
@@ -290,20 +281,18 @@ SlamKarto::getLaser(const sensor_msgs::LaserScan::ConstPtr& scan)
 
     double angle_min = tf::getYaw(min_q);
     double angle_max = tf::getYaw(max_q);
-    bool inverse =  lasers_inverted_[scan->header.frame_id] = angle_max < angle_min;
+    bool inverse = angle_max < angle_min;
     if (inverse)
-      ROS_INFO("laser is mounted upside-down");
+      assert(0); // had to drop that functionality //ROS_INFO("laser is mounted upside-down");
 
 
-    // Create a laser range finder device and copy in data from the first
-    // scan
+    // Create a laser range finder device and copy in data from the first scan
     std::string name = scan->header.frame_id;
-    karto::LaserRangeFinder* laser =
-      karto::LaserRangeFinder::CreateLaserRangeFinder(
+    karto::LaserRangeFinder* laser = karto::LaserRangeFinder::CreateLaserRangeFinder(
         karto::LaserRangeFinder_Custom, karto::Identifier(name.c_str()));
     laser->SetOffsetPose(karto::Pose2(laser_pose.getOrigin().x(),
-				      laser_pose.getOrigin().y(),
-				      yaw));
+                                      laser_pose.getOrigin().y(),
+                                      yaw));
     laser->SetMinimumRange(scan->range_min);
     laser->SetMaximumRange(scan->range_max);
     laser->SetMinimumAngle(scan->angle_min);
@@ -312,15 +301,14 @@ SlamKarto::getLaser(const sensor_msgs::LaserScan::ConstPtr& scan)
     // TODO: expose this, and many other parameters
     //laser_->SetRangeThreshold(12.0);
 
-    // Store this laser device for later
-    lasers_[scan->header.frame_id] = laser;
+    // Add to Karto
+    if(!mapper_->Process(laser))
+      return false;
 
-    // Add it to the dataset, which seems to be necessary
-    //dataset_->Add(laser);
-    objectlist_->Add(laser);
+    // Remember we added this device
+    lasers_added_to_karto_[scan->header.frame_id] = true;
   }
-
-  return lasers_[scan->header.frame_id];
+  return true;
 }
 
 bool
@@ -352,9 +340,11 @@ void
 SlamKarto::publishGraphVisualization()
 {
   //if(!solver_)
-    return;
+  return;
+
   std::vector<float> graph;
   //solver_->getGraph(graph);
+  //karto::MapperGraph* graph = mapper_->GetGraph();
 
   visualization_msgs::MarkerArray marray;
 
@@ -438,25 +428,23 @@ SlamKarto::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
   if ((laser_count_ % throttle_scans_) != 0)
     return;
 
+  // Drop scans when user requested that no scans should be added. Can be useful
+  // if we have to wait for some external event (e.g., odometry stabilizing).
+  if(!config_.add_scans)
+    return;
+
   static ros::Time last_map_update(0,0);
 
-  // Check whether we know about this laser yet
-  karto::LaserRangeFinder* laser = getLaser(scan);
-
-  if(!laser)
+  // Check whether Karto knows about this laser yet
+  if(!addLaserToKarto(scan))
   {
     ROS_WARN("Failed to create laser device for %s; discarding scan",
 	     scan->header.frame_id.c_str());
     return;
   }
 
-  // Drop scans when user requested that no scans should be added. Can be useful
-  // if we have to wait for some external event (e.g., odometry stabilizing).
-  if(!config_.add_scans)
-    return;
-
   karto::Pose2 odom_pose;
-  if(addScan(laser, scan, odom_pose))
+  if(addScan(scan, odom_pose))
   {
     ROS_DEBUG("added scan at pose: %.3f %.3f %.3f",
               odom_pose.GetX(),
@@ -486,8 +474,10 @@ SlamKarto::updateMap()
   karto::OccupancyGridPtr occ_grid =
           karto::OccupancyGrid::CreateFromScans(mapper_->GetAllProcessedScans(), resolution_);
 
-  if(!occ_grid)
+  if(!occ_grid) {
+    ROS_ERROR("No occ grid!");
     return false;
+  }
 
   if(!got_map_) {
     map_.map.info.resolution = resolution_;
@@ -553,8 +543,7 @@ SlamKarto::updateMap()
 }
 
 bool
-SlamKarto::addScan(karto::LaserRangeFinder* laser,
-		   const sensor_msgs::LaserScan::ConstPtr& scan,
+SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
                    karto::Pose2& karto_pose)
 {
   if(!getOdomPose(karto_pose, scan->header.stamp))
@@ -563,26 +552,27 @@ SlamKarto::addScan(karto::LaserRangeFinder* laser,
   // Create a vector of doubles for karto
   karto::RangeReadingsList readings;
 
-  if (lasers_inverted_[scan->header.frame_id]) {
+  /*if (lasers_inverted_[scan->header.frame_id]) {
     for(std::vector<float>::const_reverse_iterator it = scan->ranges.rbegin();
       it != scan->ranges.rend();
       ++it)
     {
       readings.Add(*it);
     }
-  } else {
+  } else {*/
     for(std::vector<float>::const_iterator it = scan->ranges.begin();
       it != scan->ranges.end();
       ++it)
     {
       readings.Add(*it);
     }
-  }
+  //}
 
+  // Create the Karto identifier of the laser scanner
+  karto::Identifier laserId(scan->header.frame_id.c_str());
 
   // create localized range scan
-  karto::LocalizedRangeScan* range_scan =
-    new karto::LocalizedRangeScan(laser->GetIdentifier(), readings);
+  karto::LocalizedRangeScan* range_scan = new karto::LocalizedRangeScan(laserId, readings);
   range_scan->SetOdometricPose(karto_pose);
   range_scan->SetCorrectedPose(karto_pose);
 
@@ -615,12 +605,9 @@ SlamKarto::addScan(karto::LaserRangeFinder* laser,
                                             0. /* never adjust Z */ ) ).inverse();
     map_to_odom_mutex_.unlock();
 
-
-    // Add the localized range scan to the dataset (for memory management)
-    //dataset_->Add(range_scan);
-    //objectlist_->Add(range_scan);
+  } else {
+    delete range_scan;
   }
-  objectlist_->Add(range_scan);
   return processed;
 }
 
@@ -659,31 +646,13 @@ SlamKarto::saveMapperState(karto::SaveMapperState::Request& request,
 
   ROS_INFO_STREAM("Saving mapper state to " << request.filename);
   try {
-#if 0
-    karto::DatasetWriterPtr pWriter = karto::DatasetWriter::CreateWriter(request.filename.c_str());
-    if(pWriter == NULL) {
-      ROS_ERROR_STREAM("Unable to save mapper state to " << request.filename);
-      return false;
-    }
-
-    // save all objects in mapper state (laser scanner, laser scans, etc.)
-    karto_const_forEach(karto::ObjectList, objectlist_)
-      *pWriter << *iter;
-
-    ROS_INFO_STREAM("Mapper state has been saved to " << request.filename);
-
-    pWriter->Close();
-    response.success = true;
-#else
     if(!karto::mapper::WriteState(mapper_, request.filename.c_str()))
-    	return false;
-#endif
+      return false;
   }
   catch (karto::Exception error) {
     ROS_ERROR_STREAM("Exception in karto: " << error.GetErrorMessage());
     return false;
   }
-ROS_INFO("all ok");
   return true;
 }
 
@@ -697,10 +666,23 @@ SlamKarto::loadMapperState(karto::LoadMapperState::Request& request,
   {
     boost::mutex::scoped_lock(map_mutex_);
     try {
-   	  mapper_ = karto::mapper::CreateDefaultMapper();
-   	  //objectlist_->Clear();
+      mapper_ = karto::mapper::CreateDefaultMapper();
+      lasers_added_to_karto_.clear();
 
       karto::mapper::ReadState(mapper_, request.filename.c_str());
+
+      // When loading the state, laser scanners are added automatically to
+      // Karto. In order to find out which ones where added, iterate the list
+      // and mark them as added, so they won't get added a second time in the
+      // laserCallback().
+      karto::List<karto::Identifier> sensorIds =
+        mapper_->GetMapperSensorManager()->GetSensorNames();
+
+      karto_forEach(karto::List<karto::Identifier>, &sensorIds) {
+        ROS_INFO_STREAM("Loaded a laser scanner description: " << (*iter).GetName());
+        lasers_added_to_karto_[(*iter).GetName().ToCString()] = true;
+      }
+
     } catch(karto::Exception error) {
         ROS_ERROR_STREAM("Exception in karto: " << error.GetErrorMessage());
         return false;
@@ -709,14 +691,16 @@ SlamKarto::loadMapperState(karto::LoadMapperState::Request& request,
 
   // send out map
   updateMap();
+
+  ROS_INFO_STREAM("Mapper state loading complete.");
   return true;
 }
 
 int
 main(int argc, char** argv)
 {
+  ros::init(argc, argv, "slam_karto");
   try {
-    ros::init(argc, argv, "slam_karto");
     karto::Environment::Initialize(argc, argv);
 
     SlamKarto kn;
@@ -728,6 +712,7 @@ main(int argc, char** argv)
 
   // After kn has gone out of scope!
   karto::Environment::Terminate();
+  ros::shutdown();
 
   return 0;
 }
