@@ -152,7 +152,7 @@ SlamKarto::SlamKarto() :
     throttle_scans_ = 1;
   double tmp;
   if(!private_nh_.getParam("map_update_interval", tmp))
-    tmp = 5.0;
+    tmp = 1.0;
   map_update_interval_.fromSec(tmp);
   if(!private_nh_.getParam("resolution", resolution_))
   {
