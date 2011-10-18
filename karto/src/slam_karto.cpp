@@ -230,7 +230,8 @@ SlamKarto::publishLoop(double transform_publish_period)
   ros::Rate r(1.0 / transform_publish_period);
   while(ros::ok())
   {
-    publishTransform();
+    if(laser_count_ != 0)    // play nice with "rosbag play --clock" and don't
+      publishTransform();    //   send out transforms before the first scan
     r.sleep();
   }
 }
