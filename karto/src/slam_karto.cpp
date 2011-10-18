@@ -130,6 +130,9 @@ class SlamKarto
     boost::thread* transform_thread_;
     tf::Transform map_to_odom_;
     unsigned marker_count_;
+
+    // debug
+    karto::DatasetWriterPtr w1, w2;
 };
 
 SlamKarto::SlamKarto() :
@@ -206,6 +209,8 @@ SlamKarto::SlamKarto() :
            config_.add_scans ? "true" : "false",
            config_.update_map ? "true" : "false");
 
+  w1 = karto::DatasetWriter::CreateWriter("/tmp/dataset_loc.kxd");
+  w2 = karto::DatasetWriter::CreateWriter("/tmp/dataset_map.kxd");
 }
 
 SlamKarto::~SlamKarto()
