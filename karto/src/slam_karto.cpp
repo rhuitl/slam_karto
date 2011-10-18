@@ -300,7 +300,7 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
     double angle_min = tf::getYaw(min_q);
     double angle_max = tf::getYaw(max_q);
     bool inverse = angle_max < angle_min;
-    if (inverse)
+    if (!inverse)
       assert(0); // had to drop that functionality //ROS_INFO("laser is mounted upside-down");
 
 
@@ -616,21 +616,21 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
   // Create a vector of doubles for karto
   karto::RangeReadingsList readings;
 
-  /*if (lasers_inverted_[scan->header.frame_id]) {
+  /*if (lasers_inverted_[scan->header.frame_id]) {*/
     for(std::vector<float>::const_reverse_iterator it = scan->ranges.rbegin();
       it != scan->ranges.rend();
       ++it)
     {
       readings.Add(*it);
     }
-  } else {*/
+  /*} else {
     for(std::vector<float>::const_iterator it = scan->ranges.begin();
       it != scan->ranges.end();
       ++it)
     {
       readings.Add(*it);
     }
-  //}
+  //}*/
 
   // Create the Karto identifier of the laser scanner
   karto::Identifier laserId(scan->header.frame_id.c_str());
