@@ -322,7 +322,7 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
     laser->SetMaximumAngle(scan->angle_max);
     laser->SetAngularResolution(scan->angle_increment);
     // TODO: expose this, and many other parameters
-    //laser_->SetRangeThreshold(12.0);
+    laser->SetRangeThreshold(scan->range_max);
 
     ROS_INFO("Adding a laser to the mapper: (%.2f,%.2f) yaw %.1f, range: [%.1f %.1f], angle: [%.1f %.1f]",
              laser_pose.getOrigin().x(), laser_pose.getOrigin().y(), yaw,
