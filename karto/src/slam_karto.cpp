@@ -135,7 +135,7 @@ class SlamKarto
 };
 
 SlamKarto::SlamKarto() :
-		server_(serverMutex_),
+        server_(serverMutex_),
         got_map_(false),
         laser_count_(0),
         transform_thread_(NULL),
@@ -451,32 +451,31 @@ SlamKarto::publishGraphVisualization()
 void
 SlamKarto::publishParticlesVisualization()
 {
-	geometry_msgs::PoseArray arr;
-	std::vector<geometry_msgs::Pose> poses;
+  geometry_msgs::PoseArray arr;
+  std::vector<geometry_msgs::Pose> poses;
 
-	if(!config_.update_map) {      // The mapper does not expose its particles
-        boost::mutex::scoped_lock(map_mutex_);
-		karto_const_forEach(karto::localizer::ParticleList, &localizer_->GetParticles()) {
-			const karto::localizer::Particle& p = (*iter);
-			geometry_msgs::Pose pose;
-			pose.position.x = p.x;
-			pose.position.y = p.y;
-			pose.position.z = 0;
+  if(!config_.update_map) {      // The mapper does not expose its particles
+    boost::mutex::scoped_lock(map_mutex_);
+    karto_const_forEach(karto::localizer::ParticleList, &localizer_->GetParticles()) {
+      const karto::localizer::Particle& p = (*iter);
+      geometry_msgs::Pose pose;
+      pose.position.x = p.x;
+      pose.position.y = p.y;
+      pose.position.z = 0;
 
-			tf::Quaternion q = tf::createQuaternionFromYaw(p.heading);
-			pose.orientation.x = q.x();
-			pose.orientation.y = q.y();
-			pose.orientation.z = q.z();
-			pose.orientation.w = q.w();
-			arr.poses.push_back(pose);
-		}
-	}
+      tf::Quaternion q = tf::createQuaternionFromYaw(p.heading);
+      pose.orientation.x = q.x();
+      pose.orientation.y = q.y();
+      pose.orientation.z = q.z();
+      pose.orientation.w = q.w();
+      arr.poses.push_back(pose);
+    }
+  }
 
-	arr.header.stamp = ros::Time::now();
-	arr.header.frame_id = map_frame_;
+  arr.header.stamp = ros::Time::now();
+  arr.header.frame_id = map_frame_;
 
-	particles_publisher_.publish(arr);
-
+  particles_publisher_.publish(arr);
 }
 
 void
