@@ -98,6 +98,7 @@ class SlamKarto
     ros::Publisher particles_publisher_;
     ros::Publisher sstm_;
     ros::ServiceServer ss_;
+    boost::recursive_mutex serverMutex_;
     dynamic_reconfigure::Server<karto::KartoConfig> server_;
     karto::KartoConfig config_;
     ros::ServiceServer saveMapperStateService_;
@@ -134,6 +135,7 @@ class SlamKarto
 };
 
 SlamKarto::SlamKarto() :
+		server_(serverMutex_),
         got_map_(false),
         laser_count_(0),
         transform_thread_(NULL),
