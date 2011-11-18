@@ -71,7 +71,7 @@ class SlamKarto
     bool updateMap();
     void publishTransform();
     void publishLoop(double transform_publish_period);
-    void publishGraphVisualization();
+    //void publishGraphVisualization();
     void publishParticlesVisualization();
     void reconfigurationCallback(karto::KartoConfig &config, uint32_t level);
 
@@ -121,8 +121,6 @@ class SlamKarto
     karto::localizer::LocalizerPtr localizer_;
     std::map<std::string, bool> lasers_added_to_karto_;
     karto::Pose2 last_corrected_pose_;
-    karto::Pose2 localizer_offset_;
-    bool apply_localizer_offset_;
 
     // Internal state
     bool got_map_;
@@ -132,11 +130,10 @@ class SlamKarto
     unsigned marker_count_;
 
     // debug
-    karto::DatasetWriterPtr w1, w2;
+    //karto::DatasetWriterPtr w1, w2;
 };
 
 SlamKarto::SlamKarto() :
-        apply_localizer_offset_(false),
         got_map_(false),
         laser_count_(0),
         transform_thread_(NULL),
@@ -209,8 +206,8 @@ SlamKarto::SlamKarto() :
            config_.add_scans ? "true" : "false",
            config_.update_map ? "true" : "false");
 
-  w1 = karto::DatasetWriter::CreateWriter("/tmp/dataset_loc.kxd");
-  w2 = karto::DatasetWriter::CreateWriter("/tmp/dataset_map.kxd");
+  //w1 = karto::DatasetWriter::CreateWriter("/tmp/dataset_loc.kxd");
+  //w2 = karto::DatasetWriter::CreateWriter("/tmp/dataset_map.kxd");
 }
 
 SlamKarto::~SlamKarto()
@@ -270,17 +267,18 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
     catch(tf::TransformException e)
     {
       ROS_WARN("Failed to compute laser pose, aborting initialization (%s)",
-	       e.what());
+               e.what());
       return false;
     }
 
     double yaw = tf::getYaw(laser_pose.getRotation());
 
-    ROS_INFO("laser %s's pose wrt base: %.3f %.3f %.3f",
-	     scan->header.frame_id.c_str(),
-	     laser_pose.getOrigin().x(),
-	     laser_pose.getOrigin().y(),
-	     yaw);
+    ROS_INFO("Laser %s's pose with respect to base: %.3f %.3f %.3f",
+      scan->header.frame_id.c_str(),
+      laser_pose.getOrigin().x(),
+      laser_pose.getOrigin().y(),
+      yaw);
+
     // To account for lasers that are mounted upside-down, we determine the
     // min, max, and increment angles of the laser in the base frame.
     tf::Quaternion q;
@@ -314,8 +312,7 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
     karto::LaserRangeFinder* laser = karto::LaserRangeFinder::CreateLaserRangeFinder(
         karto::LaserRangeFinder_Custom, karto::Identifier(name.c_str()));
     laser->SetOffsetPose(karto::Pose2(laser_pose.getOrigin().x(),
-                                      laser_pose.getOrigin().y(),
-                                      yaw));
+                                      laser_pose.getOrigin().y(), yaw));
     laser->SetMinimumRange(scan->range_min);
     laser->SetMaximumRange(scan->range_max);
     laser->SetMinimumAngle(scan->angle_min);
@@ -354,15 +351,15 @@ SlamKarto::getOdomPose(karto::Pose2& karto_pose, const ros::Time& t)
     ROS_WARN("Failed to compute odom pose, skipping scan (%s)", e.what());
     return false;
   }
+
   double yaw = tf::getYaw(odom_pose.getRotation());
 
-  karto_pose =
-          karto::Pose2(odom_pose.getOrigin().x(),
-                       odom_pose.getOrigin().y(),
-                       yaw);
+  karto_pose = karto::Pose2(odom_pose.getOrigin().x(),
+                            odom_pose.getOrigin().y(), yaw);
   return true;
 }
 
+#if 0
 void
 SlamKarto::publishGraphVisualization()
 {
@@ -447,6 +444,7 @@ SlamKarto::publishGraphVisualization()
 
   marker_publisher_.publish(marray);
 }
+#endif
 
 void
 SlamKarto::publishParticlesVisualization()
@@ -509,7 +507,7 @@ SlamKarto::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
               odom_pose.GetY(),
               odom_pose.GetHeading());
 
-    publishGraphVisualization();
+    //publishGraphVisualization();
 
     if(!got_map_ || (scan->header.stamp - last_map_update) > map_update_interval_)
     {
@@ -523,16 +521,6 @@ SlamKarto::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
   }
 
   publishParticlesVisualization();
-/*
-  try {
-  karto::Sensor* s = karto::SensorRegistry::GetInstance()->GetSensorByName("laserHoriz");
-  if(s) {
-	  karto::Pose2 p = s->GetOffsetPose();
-	  ROS_INFO_STREAM("Pose is " << p.ToString().ToCString() <<
-			  " last corr: " << last_corrected_pose_.ToString().ToCString());
-
-  }
-  } catch(karto::Exception e) {}*/
 }
 
 bool
@@ -540,8 +528,8 @@ SlamKarto::updateMap()
 {
   boost::mutex::scoped_lock(map_mutex_);
 
-  karto::OccupancyGridPtr occ_grid =
-          karto::OccupancyGrid::CreateFromScans(mapper_->GetAllProcessedScans(), resolution_);
+  karto::OccupancyGridPtr occ_grid = karto::OccupancyGrid::CreateFromScans(
+      mapper_->GetAllProcessedScans(), resolution_);
 
   if(!occ_grid) {
     ROS_ERROR("No occ grid!");
@@ -616,7 +604,7 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
                    karto::Pose2& karto_pose)
 {
   if(!getOdomPose(karto_pose, scan->header.stamp))
-     return false;
+    return false;
 
   // Create a vector of doubles for karto
   karto::RangeReadingsList readings;
@@ -643,78 +631,62 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
   // create localized range scan
   karto::LocalizedRangeScan* range_scan = new karto::LocalizedRangeScan(laserId, readings);
   range_scan->SetOdometricPose(karto_pose);
+  range_scan->SetCorrectedPose(karto_pose);
 
-  //localizer_offset_ = karto::Pose2(.5, .5, 0);
-  if(!apply_localizer_offset_) {
-	  range_scan->SetCorrectedPose(karto_pose);
-  } else {
-	  range_scan->SetCorrectedPose(karto_pose + localizer_offset_);
-	  //apply_localizer_offset_ = false;
-	  ROS_INFO_STREAM("Mapper bootstrapped with odometric pose " << karto_pose);
-	  ROS_INFO_STREAM("                     and corrected pose " << karto_pose + localizer_offset_);
-  }
-
-  //ROS_INFO_STREAM("Karto pose: " << karto_pose);
-
-  // Add the localized range scan to the mapper
-  bool processed;
-
-  karto::Module* module = config_.update_map /*(kartoMode_ == Mapping)*/
+  // Add the localized range scan to the mapper (or localizer)
+  karto::Module* module = config_.update_map
                         ? static_cast<karto::Module*>(mapper_)
                         : static_cast<karto::Module*>(localizer_);
 
   boost::mutex::scoped_lock(map_mutex_);
+  bool processed;
   if((processed = module->Process(range_scan)))
   {
-    std::cout << (config_.update_map ? "[MAPPER] " : "[LOCALIZER] ")
+    ROS_INFO_STREAM((config_.update_map ? "[MAPPER] " : "[LOCALIZER] ")
               << "Pose: " << range_scan->GetOdometricPose()
               << " Corrected Pose: " << range_scan->GetCorrectedPose()
-              << (range_scan->IsScanMatched() ? " MATCHED" : " not matched")
-              << std::endl;
-    if(!config_.update_map)
-    	*w1 << range_scan;
+              << (range_scan->IsScanMatched() ? " MATCHED" : " not matched"));
+    /*if(!config_.update_map)
+        *w1 << range_scan;
     else
-       	*w2 << range_scan;
+           *w2 << range_scan;*/
 
     if(range_scan->IsScanMatched()) {
-		last_corrected_pose_ = range_scan->GetCorrectedPose();
-		//if(!apply_localizer_offset_)
-		  localizer_offset_ = last_corrected_pose_ - range_scan->GetOdometricPose();
+        last_corrected_pose_ = range_scan->GetCorrectedPose();
 
-		// Compute the map->odom transform
-		tf::Stamped<tf::Pose> odom_to_map;
-		try
-		{
-		  tf_.transformPose(
-			  odom_frame_,
-			  tf::Stamped<tf::Pose>(
-				btTransform(
-				  tf::createQuaternionFromRPY(0, 0, last_corrected_pose_.GetHeading()),
-				  btVector3(last_corrected_pose_.GetX(), last_corrected_pose_.GetY(), 0.0)
-				).inverse(),
-				scan->header.stamp,
-				base_frame_
-			  ),
-			  odom_to_map);
-		}
-		catch(tf::TransformException e)
-		{
-		  ROS_ERROR("Transform from base_link to odom failed\n");
-		  odom_to_map.setIdentity();
-		}
+        // Compute the map->odom transform
+        tf::Stamped<tf::Pose> odom_to_map;
+        try
+        {
+          tf_.transformPose(
+              odom_frame_,
+              tf::Stamped<tf::Pose>(
+                btTransform(
+                  tf::createQuaternionFromRPY(0, 0, last_corrected_pose_.GetHeading()),
+                  btVector3(last_corrected_pose_.GetX(), last_corrected_pose_.GetY(), 0.0)
+                ).inverse(),
+                scan->header.stamp,
+                base_frame_
+              ),
+              odom_to_map);
+        }
+        catch(tf::TransformException e)
+        {
+          ROS_ERROR("Transform from base_link to odom failed\n");
+          odom_to_map.setIdentity();
+        }
 
-		map_to_odom_mutex_.lock();
-		map_to_odom_ = tf::Transform(tf::Quaternion( odom_to_map.getRotation() ),
-									 tf::Point( odom_to_map.getOrigin().getX(),
-												odom_to_map.getOrigin().getY(),
-												0. /* never adjust Z */ ) ).inverse();
-		map_to_odom_mutex_.unlock();
+        map_to_odom_mutex_.lock();
+        map_to_odom_ = tf::Transform(tf::Quaternion( odom_to_map.getRotation() ),
+                                     tf::Point( odom_to_map.getOrigin().getX(),
+                                                odom_to_map.getOrigin().getY(),
+                                                0. /* never adjust Z */ ) ).inverse();
+        map_to_odom_mutex_.unlock();
     } else {
-    	ROS_INFO("Not adding unmatched scan");
+        ROS_INFO("Not adding unmatched scan");
     }
   } else {
     //delete range_scan;
-	  //ROS_WARN("Leaking a range scan");
   }
   return processed;
 }
@@ -757,40 +729,28 @@ SlamKarto::reconfigurationCallback(karto::KartoConfig &config, uint32_t level)
       // Switching from mapper to localizer
       set_localizer_last_corrected_pose = true;
       set_localizer_config = true;
-      apply_localizer_offset_ = false;
+
     } else {
       // Switching from localizer to mapper
 
       // Find the scanners and set their pose
-      /*const karto::LocalizedObjectList& objects = mapper_->GetAllProcessedObjects();
-      karto_const_forEach(karto::LocalizedObjectList, &objects) {
-    	  ROS_INFO_STREAM("got an object" << (*iter)->GetIdentifier().GetName().ToCString());
-          if(karto::IsSensor((*iter).Get())) {
-        	  ROS_INFO("found a sensor");
-            mapper_->LocalizeSensorAt(dynamic_cast<karto::Sensor*>((*iter).Get()),
-            		last_corrected_pose_);
+      if(lasers_added_to_karto_.size() != 0) {
+        try {
+          if(lasers_added_to_karto_.size() > 1)
+            ROS_WARN("There's more than one laser scanner, using only first one. FIXME.");
+
+          std::string name = (*lasers_added_to_karto_.begin()).first;
+          karto::Sensor* s = karto::SensorRegistry::GetInstance()->GetSensorByName(name.c_str());
+          if(!s)
+            ROS_ERROR("Cannot get sensor");
+          else {
+            ROS_INFO_STREAM("Setting mapper position to " << last_corrected_pose_);
+            mapper_->LocalizeSensorAt(s, last_corrected_pose_);
           }
-
-      }*/
-      try {
-		  karto::Sensor* s = karto::SensorRegistry::GetInstance()->GetSensorByName("laserHoriz");
-		  if(!s)
-			  ROS_ERROR("Cannot get sensor");
-		  else {
-			  ROS_INFO_STREAM("Setting mapper position to "
-					   << last_corrected_pose_ /*
-					   << " + " << localizer_offset_ << " = "
-					   << last_corrected_pose_ + localizer_offset_*/);
-			  mapper_->LocalizeSensorAt(s, last_corrected_pose_);
-		  }
-      } catch (karto::Exception error) {
-		ROS_ERROR_STREAM("Exception in karto (reconf cb): " << error.GetErrorMessage());
-	  }
-
-      // Apply last correction (the odom_to_map transform) determined by
-      // localizer to the mapper. There should be a better way to do this...
-      //apply_localizer_offset_ = true;
-      //ROS_WARN("ENABLED MAPPER");
+        } catch (karto::Exception error) {
+          ROS_ERROR_STREAM("Exception in karto (reconf cb): " << error.GetErrorMessage());
+        }
+      }
     }
 
   }
@@ -812,8 +772,8 @@ SlamKarto::reconfigurationCallback(karto::KartoConfig &config, uint32_t level)
     setLocalizerConfig();
 
   if(set_localizer_last_corrected_pose) {
-	  ROS_INFO_STREAM("Using last corrected pose to bootstrap localizer: "
-			  << last_corrected_pose_.ToString().ToCString());
+    ROS_INFO_STREAM("Using last corrected pose to bootstrap localizer: "
+                    << last_corrected_pose_.ToString().ToCString());
     localizer_->SetStartPosition(last_corrected_pose_);
   }
 }
@@ -843,6 +803,7 @@ SlamKarto::loadMapperState(karto::LoadMapperState::Request& request,
 {
   ROS_INFO_STREAM("Loading mapper state from " << request.filename);
 
+  /* scope the map_mutex_ variable */
   {
     boost::mutex::scoped_lock(map_mutex_);
     try {
@@ -863,20 +824,15 @@ SlamKarto::loadMapperState(karto::LoadMapperState::Request& request,
         lasers_added_to_karto_[(*iter).GetName().ToCString()] = true;
       }
 
-      // We need to find our current position using the localizer, i.e.,
-      // without modifying the map
-      //localizer_->Reset();
-
       config_.update_map = false;      // switch to localizer module
       config_.dead_reckoning = true;   // assume position is unknown
       server_.updateConfig(config_);   // publish modified configuration
 
       setLocalizerConfig();
-      apply_localizer_offset_ = false;
 
     } catch(karto::Exception error) {
-        ROS_ERROR_STREAM("Exception in karto: " << error.GetErrorMessage());
-        return false;
+      ROS_ERROR_STREAM("Exception in karto: " << error.GetErrorMessage());
+      return false;
     }
   } // release mutex here as updateMap() will lock it, too.
 
@@ -894,7 +850,7 @@ SlamKarto::setLocalizerConfig()
     karto::OccupancyGridPtr occ_grid =
       karto::OccupancyGrid::CreateFromScans(mapper_->GetAllProcessedScans(), resolution_);
     if(!occ_grid.IsValid()) {
-      ROS_ERROR_STREAM("Occupancy grid is NULL in setLocalizerConfig()");
+      // This is normal during startup when no scan has been processed yet.
       return;
     }
 
