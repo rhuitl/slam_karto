@@ -251,8 +251,13 @@ SlamKarto::publishTransform()
 bool
 SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
 {
+  // Strip trailing / from the name. Internally, Karto seems to do that, too.
+  std::string sensor_id = scan->header.frame_id;
+  if(sensor_id.at(0) == '/')
+	  sensor_id = sensor_id.substr(1);
+
   // Check whether we know about this laser yet
-  if(lasers_added_to_karto_.find(scan->header.frame_id) == lasers_added_to_karto_.end())
+  if(lasers_added_to_karto_.find(sensor_id) == lasers_added_to_karto_.end())
   {
     // New laser; need to create a Karto device for it.
 
@@ -276,7 +281,7 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
     double yaw = tf::getYaw(laser_pose.getRotation());
 
     ROS_INFO("Laser %s's pose with respect to base: %.3f %.3f %.3f",
-      scan->header.frame_id.c_str(),
+      sensor_id.c_str(),
       laser_pose.getOrigin().x(),
       laser_pose.getOrigin().y(),
       yaw);
@@ -310,9 +315,8 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
 
 
     // Create a laser range finder device and copy in data from the first scan
-    std::string name = scan->header.frame_id;
     karto::LaserRangeFinder* laser = karto::LaserRangeFinder::CreateLaserRangeFinder(
-        karto::LaserRangeFinder_Custom, karto::Identifier(name.c_str()));
+        karto::LaserRangeFinder_Custom, karto::Identifier(sensor_id.c_str()));
     laser->SetOffsetPose(karto::Pose2(laser_pose.getOrigin().x(),
                                       laser_pose.getOrigin().y(), yaw));
     laser->SetMinimumRange(scan->range_min);
@@ -332,7 +336,7 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
       return false;
 
     // Remember we added this device
-    lasers_added_to_karto_[scan->header.frame_id] = true;
+    lasers_added_to_karto_[sensor_id] = true;
   }
   return true;
 }
@@ -453,7 +457,6 @@ SlamKarto::publishParticlesVisualization()
 {
   geometry_msgs::PoseArray arr;
   std::vector<geometry_msgs::Pose> poses;
-
   if(!config_.update_map) {      // The mapper does not expose its particles
     boost::mutex::scoped_lock(map_mutex_);
     karto_const_forEach(karto::localizer::ParticleList, &localizer_->GetParticles()) {
@@ -626,8 +629,13 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
     }
   //}*/
 
+  // Strip trailing / from the name. Internally, Karto seems to do that, too.
+  std::string sensor_id = scan->header.frame_id;
+  if(sensor_id.at(0) == '/')
+    sensor_id = sensor_id.substr(1);
+
   // Create the Karto identifier of the laser scanner
-  karto::Identifier laserId(scan->header.frame_id.c_str());
+  karto::Identifier laserId(sensor_id.c_str());
 
   // create localized range scan
   karto::LocalizedRangeScan* range_scan = new karto::LocalizedRangeScan(laserId, readings);
