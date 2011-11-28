@@ -74,6 +74,8 @@ class SlamKarto
     //void publishGraphVisualization();
     void publishParticlesVisualization();
     void reconfigurationCallback(karto::KartoConfig &config, uint32_t level);
+    void goalCallback(const geometry_msgs::PoseStamped& msg);
+
 
     bool saveMapperState(karto::SaveMapperState::Request& request,
                          karto::SaveMapperState::Response& response);
@@ -103,6 +105,7 @@ class SlamKarto
     karto::KartoConfig config_;
     ros::ServiceServer saveMapperStateService_;
     ros::ServiceServer loadMapperStateService_;
+    ros::Subscriber goal_subs_;
 
     // The map that will be published / sent to service callers
     nav_msgs::GetMap::Response map_;
@@ -199,6 +202,9 @@ SlamKarto::SlamKarto() :
     SaveMapperStateCallback(boost::bind(&SlamKarto::saveMapperState, this, _1, _2)));
   loadMapperStateService_ = node_.advertiseService("slam_karto/LoadMapperState",
     LoadMapperStateCallback(boost::bind(&SlamKarto::loadMapperState, this, _1, _2)));
+
+  // Subscriber to /goal in order to set localizer position manually.
+  goal_subs_ = node_.subscribe("/goal", 10, &SlamKarto::goalCallback, this);
 
   // Send out map (even if it's empty) so RViz can reflect the current state
   //updateMap();
@@ -785,6 +791,16 @@ SlamKarto::reconfigurationCallback(karto::KartoConfig &config, uint32_t level)
                     << last_corrected_pose_.ToString().ToCString());
     localizer_->SetStartPosition(last_corrected_pose_);
   }
+}
+
+void
+SlamKarto::goalCallback(const geometry_msgs::PoseStamped& msg)
+{
+    boost::mutex::scoped_lock(map_mutex_);
+    ROS_INFO_STREAM("Using navigation goal to set localizer position: "
+                    << msg.pose.position);
+    karto::Pose2 pose(msg.pose.position.x, msg.pose.position.y, 0 /*heading*/);
+    localizer_->SetStartPosition(pose);
 }
 
 bool
