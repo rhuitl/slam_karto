@@ -19,8 +19,9 @@ rosbuild_gensrv()
 # Build the ROS wrapper
 include_directories(${PROJECT_SOURCE_DIR}/KartoSDK-2.1.4.6711-Linux-64/include)
 link_directories(${PROJECT_SOURCE_DIR}/KartoSDK-2.1.4.6711-Linux-64/lib)
-#rosbuild_add_executable(bin/slam_karto src/slam_karto.cpp src/spa_solver.cpp)
+
 rosbuild_add_executable(bin/slam_karto src/slam_karto.cpp)
+rosbuild_link_boost(bin/slam_karto signals)
 target_link_libraries(bin/slam_karto Karto_64)
 
 rosbuild_add_executable(bin/slam_ctl src/slam_ctl.cpp)

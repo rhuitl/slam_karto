@@ -269,7 +269,7 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
 
     // Get the laser's pose, relative to base.
     tf::Stamped<tf::Pose> ident;
-    tf::Stamped<btTransform> laser_pose;
+    tf::Stamped<tf::Pose> laser_pose;
     ident.setIdentity();
     ident.frame_id_ = scan->header.frame_id;
     ident.stamp_ = scan->header.stamp;
@@ -351,9 +351,9 @@ bool
 SlamKarto::getOdomPose(karto::Pose2& karto_pose, const ros::Time& t)
 {
   // Get the robot's pose
-  tf::Stamped<tf::Pose> ident (btTransform(tf::createQuaternionFromRPY(0,0,0),
+  tf::Stamped<tf::Pose> ident (btTransform(btQuaternion(0,0,0),
                                            btVector3(0,0,0)), t, base_frame_);
-  tf::Stamped<btTransform> odom_pose;
+  tf::Stamped<tf::Pose> odom_pose;
   try
   {
     tf_.transformPose(odom_frame_, ident, odom_pose);
@@ -677,7 +677,7 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
               odom_frame_,
               tf::Stamped<tf::Pose>(
                 btTransform(
-                  tf::createQuaternionFromRPY(0, 0, last_corrected_pose_.GetHeading()),
+                  btQuaternion(0, 0, last_corrected_pose_.GetHeading()),
                   btVector3(last_corrected_pose_.GetX(), last_corrected_pose_.GetY(), 0.0)
                 ).inverse(),
                 scan->header.stamp,
