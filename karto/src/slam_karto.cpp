@@ -677,7 +677,7 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
               odom_frame_,
               tf::Stamped<tf::Pose>(
                 btTransform(
-                  btQuaternion(0, 0, last_corrected_pose_.GetHeading()),
+                  btQuaternion(last_corrected_pose_.GetHeading(), 0, 0),
                   btVector3(last_corrected_pose_.GetX(), last_corrected_pose_.GetY(), 0.0)
                 ).inverse(),
                 scan->header.stamp,
