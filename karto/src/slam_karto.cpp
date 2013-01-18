@@ -70,11 +70,13 @@ class SlamKarto
                  karto::Pose2& karto_pose);
     bool updateMap();
     void publishTransform();
-    void publishLoop(double transform_publish_period);
-    //void publishGraphVisualization();
+    void publishPreciseTransform(const tf::StampedTransform& t);
+//    void publishLoop();
+//    void publishGraphVisualization();
     void publishParticlesVisualization();
     void reconfigurationCallback(karto::KartoConfig &config, uint32_t level);
     void goalCallback(const geometry_msgs::PoseStamped& msg);
+    void forceUpdateCallback(const std_msgs::Header& msg);
 
 
     bool saveMapperState(karto::SaveMapperState::Request& request,
@@ -106,19 +108,21 @@ class SlamKarto
     ros::ServiceServer saveMapperStateService_;
     ros::ServiceServer loadMapperStateService_;
     ros::Subscriber goal_subs_;
+    ros::Subscriber forceUpdate_subs_;
 
     // The map that will be published / sent to service callers
     nav_msgs::GetMap::Response map_;
 
     // Storage for ROS parameters
     std::string odom_frame_;
-    std::string map_frame_;
+    std::string map_frame_, map_precise_frame_;
     std::string base_frame_;
     int throttle_scans_;
     ros::Duration map_update_interval_;
     double resolution_;
     boost::mutex map_mutex_;
     boost::mutex map_to_odom_mutex_;
+    double transform_publish_period_;
 
     // Karto bookkeeping
     karto::mapper::MapperPtr mapper_;
@@ -130,8 +134,10 @@ class SlamKarto
     bool got_map_;
     int laser_count_;
     boost::thread* transform_thread_;
-    tf::Transform map_to_odom_;
+	tf::StampedTransform map_to_odom_;
     unsigned marker_count_;
+    bool force_update_;
+    ros::Time force_update_time_;
 
     // debug
     //karto::DatasetWriterPtr w1, w2;
@@ -142,15 +148,17 @@ SlamKarto::SlamKarto() :
         got_map_(false),
         laser_count_(0),
         transform_thread_(NULL),
-        marker_count_(0)
+        marker_count_(0),
+        force_update_(false)
 {
-  map_to_odom_.setIdentity();
   // Retrieve parameters
   ros::NodeHandle private_nh_("~");
   if(!private_nh_.getParam("odom_frame", odom_frame_))
     odom_frame_ = "odom";
   if(!private_nh_.getParam("map_frame", map_frame_))
     map_frame_ = "map";
+  if(!private_nh_.getParam("map_precise_frame", map_precise_frame_))
+    map_precise_frame_ = "map_precise";
   if(!private_nh_.getParam("base_frame", base_frame_))
     base_frame_ = "base_link";
   if(!private_nh_.getParam("throttle_scans", throttle_scans_))
@@ -166,23 +174,31 @@ SlamKarto::SlamKarto() :
     if(!private_nh_.getParam("delta", resolution_))
       resolution_ = 0.05;
   }
-  double transform_publish_period;
-  private_nh_.param("transform_publish_period", transform_publish_period, 0.05);
+  private_nh_.param("transform_publish_period", transform_publish_period_, .05);
+
+  // Initialize the stamped transform between odometry and map frame
+  map_to_odom_ = tf::StampedTransform ( tf::Transform::getIdentity(),
+    ros::Time::now(), map_frame_, odom_frame_);
 
   // Set up advertisements and subscriptions
   sst_ = node_.advertise<nav_msgs::OccupancyGrid>("map", 1, true);
   sstm_ = node_.advertise<nav_msgs::MapMetaData>("map_metadata", 1, true);
   ss_ = node_.advertiseService("dynamic_map", &SlamKarto::mapCallback, this);
+
   scan_filter_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(node_, "scan", 5);
   scan_filter_ = new tf::MessageFilter<sensor_msgs::LaserScan>(*scan_filter_sub_, tf_, odom_frame_, 5);
   scan_filter_->registerCallback(boost::bind(&SlamKarto::laserCallback, this, _1));
+
   marker_publisher_ = node_.advertise<visualization_msgs::MarkerArray>("visualization_marker_array",1);
   particles_publisher_ = node_.advertise<geometry_msgs::PoseArray>("particles_array",1);
+
+  // Subscribe to force_update topic, when receiving a message, a scan is forced to be added
+  forceUpdate_subs_ = node_.subscribe("force_update", 100, &SlamKarto::forceUpdateCallback, this);
 
   // Create a thread to periodically publish the latest map->odom
   // transform; it needs to go out regularly, uninterrupted by potentially
   // long periods of computation in our main loop.
-  transform_thread_ = new boost::thread(boost::bind(&SlamKarto::publishLoop, this, transform_publish_period));
+//  transform_thread_ = new boost::thread(boost::bind(&SlamKarto::publishLoop, this));
 
   // Initialize Karto structures
   mapper_ = karto::mapper::CreateDefaultMapper();
@@ -231,27 +247,32 @@ SlamKarto::~SlamKarto()
     delete scan_filter_sub_;
 }
 
-void
-SlamKarto::publishLoop(double transform_publish_period)
+/*void
+SlamKarto::publishLoop()
 {
-  if(transform_publish_period == 0)
+  if(transform_publish_period_ == 0)
     return;
 
-  ros::Rate r(1.0 / transform_publish_period);
+  ros::Rate r(1.0 / transform_publish_period_);
   while(ros::ok())
   {
     if(laser_count_ != 0)    // play nice with "rosbag play --clock" and don't
       publishTransform();    //   send out transforms before the first scan
     r.sleep();
   }
-}
+}*/
 
 void
 SlamKarto::publishTransform()
 {
   boost::mutex::scoped_lock(map_to_odom_mutex_);
-  ros::Time tf_expiration = ros::Time::now() + ros::Duration(0.05);
-  tfB_.sendTransform(tf::StampedTransform (map_to_odom_, ros::Time::now(), map_frame_, odom_frame_));
+  tfB_.sendTransform(map_to_odom_);
+}
+
+void
+SlamKarto::publishPreciseTransform(const tf::StampedTransform& t)
+{
+  tfB_.sendTransform(t);
 }
 
 bool
@@ -653,6 +674,19 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
                         ? static_cast<karto::Module*>(mapper_)
                         : static_cast<karto::Module*>(localizer_);
 
+  // Set MinimumTravelDistance to 0 to force processing of this scan
+  karto::Parameter<kt_double>* minimumTravelDistance = dynamic_cast< karto::Parameter<kt_double>* >(
+    module->GetParameter("MinimumTravelDistance") );
+  double oldMinimumTravelDistance = minimumTravelDistance->GetValue();
+
+  bool forcing_update = false;
+  if(force_update_ && force_update_time_ <= scan->header.stamp) {
+    ROS_DEBUG_STREAM("Forcibly adding laser scan to map " << scan->header.stamp << " (trigger was at " << force_update_time_ << ")");
+    module->SetParameters("MinimumTravelDistance", 0.);
+    forcing_update = true;
+  }
+
+  // Process the laser scan
   boost::mutex::scoped_lock(map_mutex_);
   bool processed;
   if((processed = module->Process(range_scan)))
@@ -691,18 +725,50 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
           odom_to_map.setIdentity();
         }
 
+        // Update the continuous transform
         map_to_odom_mutex_.lock();
-        map_to_odom_ = tf::Transform(tf::Quaternion( odom_to_map.getRotation() ),
-                                     tf::Point( odom_to_map.getOrigin().getX(),
-                                                odom_to_map.getOrigin().getY(),
-                                                0. /* never adjust Z */ ) ).inverse();
+        map_to_odom_ = tf::StampedTransform (
+                            tf::Transform(tf::Quaternion( odom_to_map.getRotation() ),
+                                          tf::Point( odom_to_map.getOrigin().getX(),
+                                                     odom_to_map.getOrigin().getY(),
+                                                     0. /* never adjust Z */ ) ).inverse(),
+                            scan->header.stamp, map_frame_, odom_frame_);
         map_to_odom_mutex_.unlock();
+
+        if(forcing_update) {
+          force_update_ = false;
+
+          // Publish precise transform only when we have a forced update
+          // Note: we publish the inverse transform because ROS TF hierarchies
+          //       must be a tree, i.e., we cannot publish more than one transform
+          //       with odom_frame_ as parent.
+          publishPreciseTransform(tf::StampedTransform (
+                            tf::Transform(tf::Quaternion( odom_to_map.getRotation() ),
+                                          tf::Point( odom_to_map.getOrigin().getX(),
+                                                     odom_to_map.getOrigin().getY(),
+                                                     0. /* never adjust Z */ ) )/*.inverse()*/,
+//                            force_update_time_ /*scan->header.stamp*/, map_precise_frame_, odom_frame_));
+                            force_update_time_ /*scan->header.stamp*/, odom_frame_, map_precise_frame_));
+        }
+
     } else {
         ROS_INFO("Not adding unmatched scan");
     }
   } else {
-    //delete range_scan;
+    // Karto ignored the scan, e.g., because the distance was too short
   }
+
+  if(forcing_update) {
+    // Restore the MinimumTravelDistance
+    module->SetParameters("MinimumTravelDistance", oldMinimumTravelDistance);
+  }
+
+  // Periodically publish the last-known transform, but fill in the current
+  // scan's timestamp regardless of whether it has been processed by the
+  // SLAM module.
+  map_to_odom_.stamp_ = scan->header.stamp;
+  publishTransform();
+
   return processed;
 }
 
@@ -801,6 +867,13 @@ SlamKarto::goalCallback(const geometry_msgs::PoseStamped& msg)
                     << msg.pose.position);
     karto::Pose2 pose(msg.pose.position.x, msg.pose.position.y, 0 /*heading*/);
     localizer_->SetStartPosition(pose);
+}
+
+void
+SlamKarto::forceUpdateCallback(const std_msgs::Header& msg)
+{
+  force_update_time_ = msg.stamp;
+  force_update_ = true;
 }
 
 bool
