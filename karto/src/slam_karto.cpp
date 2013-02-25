@@ -727,7 +727,7 @@ SlamKarto::reconfigurationCallback(karto::KartoConfig &config, uint32_t level)
 
   if(config_.add_scans != config.add_scans)
     ROS_INFO("Incoming laser scans are %s.", config.add_scans
-             ? "used" : "NOT used (GMapping is paused)");
+             ? "used" : "NOT used (Karto is paused)");
 
   bool set_localizer_config = false;
   bool set_localizer_last_corrected_pose  = false;
