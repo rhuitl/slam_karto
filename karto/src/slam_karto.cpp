@@ -281,7 +281,7 @@ SlamKarto::publishLoop()
 void
 SlamKarto::publishTransform()
 {
-  boost::mutex::scoped_lock(map_to_odom_mutex_);
+  boost::mutex::scoped_lock lock(map_to_odom_mutex_);
   tfB_.sendTransform(map_to_odom_);
 }
 
@@ -501,7 +501,7 @@ SlamKarto::publishParticlesVisualization()
   geometry_msgs::PoseArray arr;
   std::vector<geometry_msgs::Pose> poses;
   if(!config_.update_map) {      // The mapper does not expose its particles
-    boost::mutex::scoped_lock(karto_mutex_);
+    boost::mutex::scoped_lock lock(karto_mutex_);
     karto_const_forEach(karto::localizer::ParticleList, &localizer_->GetParticles()) {
       const karto::localizer::Particle& p = (*iter);
       geometry_msgs::Pose pose;
@@ -589,7 +589,7 @@ SlamKarto::updateMap()
   karto::LocalizedLaserScanList scans;
 
   {
-    boost::mutex::scoped_lock(karto_mutex_);
+    boost::mutex::scoped_lock lock(karto_mutex_);
 
     scans = mapper_->GetAllProcessedScans();
 
@@ -617,7 +617,7 @@ SlamKarto::updateMap()
   if(!occ_grid)
     return false;
 
-  boost::mutex::scoped_lock(map_mutex_);
+  boost::mutex::scoped_lock lock(map_mutex_);
 
   if(!got_map_) {
     map_.map.info.resolution = resolution_;
@@ -726,7 +726,7 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
                         ? static_cast<karto::Module*>(mapper_)
                         : static_cast<karto::Module*>(localizer_);
 
-  boost::mutex::scoped_lock(karto_mutex_);
+  boost::mutex::scoped_lock lock(karto_mutex_);
 
   // Set MinimumTravelDistance to 0 to force processing of this scan
   karto::Parameter<kt_double>* minimumTravelDistance = dynamic_cast< karto::Parameter<kt_double>* >(
@@ -829,7 +829,7 @@ bool
 SlamKarto::mapCallback(nav_msgs::GetMap::Request  &req,
                        nav_msgs::GetMap::Response &res)
 {
-  boost::mutex::scoped_lock(map_mutex_);
+  boost::mutex::scoped_lock lock(map_mutex_);
   if(got_map_ && map_.map.info.width && map_.map.info.height)
   {
     res = map_;
@@ -842,7 +842,7 @@ SlamKarto::mapCallback(nav_msgs::GetMap::Request  &req,
 void
 SlamKarto::reconfigurationCallback(karto::KartoConfig &config, uint32_t level)
 {
-  boost::mutex::scoped_lock(karto_mutex_);
+  boost::mutex::scoped_lock lock(karto_mutex_);
 
   if(config_.add_scans != config.add_scans)
     ROS_INFO("Incoming laser scans are %s.", config.add_scans
@@ -915,7 +915,7 @@ SlamKarto::reconfigurationCallback(karto::KartoConfig &config, uint32_t level)
 void
 SlamKarto::goalCallback(const geometry_msgs::PoseStamped& msg)
 {
-    boost::mutex::scoped_lock(karto_mutex_);
+    boost::mutex::scoped_lock lock(karto_mutex_);
     ROS_INFO_STREAM("Using navigation goal to set localizer position: "
                     << msg.pose.position);
     karto::Pose2 pose(msg.pose.position.x, msg.pose.position.y, 0 /*heading*/);
@@ -933,7 +933,7 @@ bool
 SlamKarto::saveMapperState(karto::SaveMapperState::Request& request,
                            karto::SaveMapperState::Response& response)
 {
-  boost::mutex::scoped_lock(karto_mutex_);
+  boost::mutex::scoped_lock lock(karto_mutex_);
 
   ROS_INFO_STREAM("Saving mapper state to " << request.filename);
   try {
@@ -956,7 +956,7 @@ SlamKarto::loadMapperState(karto::LoadMapperState::Request& request,
 
   /* scope the map_mutex_ variable */
   {
-    boost::mutex::scoped_lock(karto_mutex_);
+    boost::mutex::scoped_lock lock(karto_mutex_);
     try {
       mapper_ = karto::mapper::CreateDefaultMapper();
       lasers_added_to_karto_.clear();
