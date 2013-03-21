@@ -64,6 +64,11 @@ class SlamKarto
                      nav_msgs::GetMap::Response &res);
 
   private:
+    void OnMessage(karto::MapperEventArguments& args);
+    void OnPreLoopClosed(karto::MapperEventArguments& args);
+    void OnPostLoopClosed(karto::MapperEventArguments& args);
+    void OnScansUpdated(karto::EventArguments& args);
+
     bool getOdomPose(karto::Pose2& karto_pose, const ros::Time& t);
     bool addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan);
     bool addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
@@ -236,6 +241,12 @@ SlamKarto::SlamKarto() :
   //updateMap();
   // TODO send out an empty map. Not so easy after all.
 
+  // Set callbacks
+  mapper_->Message += karto::delegate(this, &SlamKarto::OnMessage);
+  mapper_->PreLoopClosed += karto::delegate(this, &SlamKarto::OnPreLoopClosed);
+  mapper_->PostLoopClosed += karto::delegate(this, &SlamKarto::OnPostLoopClosed);
+  mapper_->ScansUpdated += karto::delegate(this, &SlamKarto::OnScansUpdated);
+
   ROS_INFO("slam_karto configuration: add_scans = %s, update_map = %s, resolution: %.3f",
            config_.add_scans ? "true" : "false",
            config_.update_map ? "true" : "false",
@@ -261,6 +272,26 @@ SlamKarto::~SlamKarto()
     delete scan_filter_;
   if (scan_filter_sub_)
     delete scan_filter_sub_;
+}
+
+void SlamKarto::OnMessage(karto::MapperEventArguments& args)
+{
+	ROS_INFO_STREAM("********** Message from Karto: " << args.GetEventMessage());
+}
+
+void SlamKarto::OnPreLoopClosed(karto::MapperEventArguments& args)
+{
+	ROS_DEBUG_STREAM("********** PreLoopClosed from Karto: " << args.GetEventMessage());
+}
+
+void SlamKarto::OnPostLoopClosed(karto::MapperEventArguments& args)
+{
+	ROS_INFO_STREAM("********** PostLoopClosed from Karto: " << args.GetEventMessage());
+}
+
+void SlamKarto::OnScansUpdated(karto::EventArguments& args)
+{
+	ROS_INFO_STREAM("********** ScansUpdated from Karto");
 }
 
 /*void
