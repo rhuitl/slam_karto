@@ -1,0 +1,6 @@
+Download Karto SDK from http://www.kartorobotics.com/ (commercial trial)
+and unpack the KartoSDK-2.1.?.????-Linux-64.tar.gz file in
+slam_karto/karto, then create a symlink to KartoSDK so that
+slam_karto/karto/KartoSDK exists.
+
+Note: karto_scan_matcher does not build at the moment, only karto.
