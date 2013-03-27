@@ -32,6 +32,7 @@
 #include "tf/message_filter.h"
 #include "visualization_msgs/MarkerArray.h"
 #include "geometry_msgs/PoseArray.h"
+#include "rosbag/bag.h"
 
 #include "nav_msgs/MapMetaData.h"
 #include "sensor_msgs/LaserScan.h"
@@ -752,6 +753,9 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
   range_scan->SetOdometricPose(karto_pose);
   range_scan->SetCorrectedPose(karto_pose);
 
+  // save timestamp of scan so it can be extracted later
+  range_scan->SetTime(static_cast<int64_t>(scan->header.stamp.toNSec()));
+
   // Add the localized range scan to the mapper (or localizer)
   karto::Module* module = config_.update_map
                         ? static_cast<karto::Module*>(mapper_)
@@ -966,15 +970,56 @@ SlamKarto::saveMapperState(karto::SaveMapperState::Request& request,
 {
   boost::mutex::scoped_lock lock(karto_mutex_);
 
-  ROS_INFO_STREAM("Saving mapper state to " << request.filename);
+  ROS_INFO_STREAM("Saving mapper state to " << request.kxm_filename);
   try {
-    if(!karto::mapper::WriteState(mapper_, request.filename.c_str()))
+    if(!karto::mapper::WriteState(mapper_, request.kxm_filename.c_str()))
       return false;
   }
   catch (karto::Exception error) {
     ROS_ERROR_STREAM("Exception in karto: " << error.GetErrorMessage());
     return false;
   }
+
+  if(request.bag_filename.length() == 0)
+	  return true;
+
+  // Save corrected poses as TF transforms to a bag file that can be replayed
+  // later in order to process the dataset with loop closures applied
+  ROS_INFO_STREAM("Saving corrected poses to " << request.bag_filename);
+
+  rosbag::Bag bag;
+  bag.open(request.bag_filename, rosbag::bagmode::Write);
+
+  const karto::LocalizedLaserScanList& scans = mapper_->GetAllProcessedScans();
+
+  for(size_t i = 0; i < scans.Size(); i++) {
+	const karto::LocalizedLaserScan* scan = scans[i].Get();
+    const karto::Pose2& pose = scan->GetCorrectedPose();
+
+    // Get time from scan
+    ros::Time ros_time = ros::Time().fromNSec(static_cast<uint64_t>(scan->GetTime()));
+
+    // Construct transform
+    tf::StampedTransform scan_pos(
+      btTransform(btQuaternion(pose.GetHeading(), 0, 0), btVector3(pose.GetX(), pose.GetY(), 0.0)).inverse(),
+      ros_time,
+      base_frame_,
+      map_precise_frame_
+    );
+
+    // Wrap in TF message
+    geometry_msgs::TransformStamped msg;
+    tf::transformStampedTFToMsg(scan_pos, msg);
+
+    tf::tfMessage tfmsg;
+    tfmsg.transforms.push_back(msg);
+    // Write to bag file
+    bag.write("/tf", ros_time, tfmsg);
+
+  }
+
+  bag.close();
+
   return true;
 }
 
@@ -983,7 +1028,7 @@ bool
 SlamKarto::loadMapperState(karto::LoadMapperState::Request& request,
                            karto::LoadMapperState::Response& response)
 {
-  ROS_INFO_STREAM("Loading mapper state from " << request.filename);
+  ROS_INFO_STREAM("Loading mapper state from " << request.kxm_filename);
 
   /* scope the map_mutex_ variable */
   {
@@ -992,7 +1037,7 @@ SlamKarto::loadMapperState(karto::LoadMapperState::Request& request,
       mapper_ = karto::mapper::CreateDefaultMapper();
       lasers_added_to_karto_.clear();
 
-      karto::mapper::ReadState(mapper_, request.filename.c_str());
+      karto::mapper::ReadState(mapper_, request.kxm_filename.c_str());
 
       // When loading the state, laser scanners are added automatically to
       // Karto. In order to find out which ones where added, iterate the list

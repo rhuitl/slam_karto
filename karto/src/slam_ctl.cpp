@@ -17,8 +17,8 @@
 int
 main(int argc, char** argv)
 {
-	if(argc != 3) {
-		fprintf(stderr, "Usage: %s command filename\n  where command is \"load\" or \"save\".\n", argv[0]);
+	if(argc < 3) {
+		fprintf(stderr, "Usage: %s command filename [bag filename]\n  where command is \"load\" or \"save\".\n", argv[0]);
 		return 1;
 	}
 
@@ -36,7 +36,7 @@ main(int argc, char** argv)
 		karto::LoadMapperState::Request req;
 		karto::LoadMapperState::Response resp;
 
-		req.filename = fn;
+		req.kxm_filename = fn;
 
 		if(!ros::service::call(servname, req, resp)) {
 			ROS_ERROR("Service call failed. Check output of slam_karto node.");
@@ -46,6 +46,8 @@ main(int argc, char** argv)
 		ROS_INFO("Service call succeeded, state has been loaded.");
 
 	} else if(!strcmp(cmd, "save")) {
+		const char* bag_fn = argc >= 3 ? argv[3] : "";
+
 		const static std::string servname = "slam_karto/SaveMapperState";
 
 		ROS_INFO("Saving mapper state using service %s...", n.resolveName(servname).c_str());
@@ -53,7 +55,8 @@ main(int argc, char** argv)
 		karto::SaveMapperState::Request req;
 		karto::SaveMapperState::Response resp;
 
-		req.filename = fn;
+		req.kxm_filename = fn;
+		req.bag_filename = bag_fn;
 
 		if(!ros::service::call(servname, req, resp)) {
 			ROS_ERROR("Service call failed. Check output of slam_karto node.");

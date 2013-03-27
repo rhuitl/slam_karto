@@ -1,3 +1,4 @@
 # Save the mapper state to a file
-string filename
+string kxm_filename
+string bag_filename
 ---

@@ -16,6 +16,7 @@
   <depend package="rosconsole"/>
   <depend package="nav_msgs"/>
   <depend package="message_filters"/>
+  <depend package="rosbag"/>
 
   <!-- dynamic reconfiguration -->
   <depend package="rospy"/>
