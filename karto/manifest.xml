@@ -24,7 +24,7 @@
   <depend package="driver_base"/>
 
   <export>
-    <cpp cflags="-I${prefix}/KartoSDK-2.1.4.6711-Linux-64/include" lflags="-Wl,-rpath,${prefix}/KartoSDK-2.1.4.6711-Linux-64/lib -L${prefix}/KartoSDK-2.1.4.6711-Linux-64/lib -lKarto_64"/>
+    <cpp cflags="-I${prefix}/KartoSDK/include" lflags="-Wl,-rpath,${prefix}/KartoSDK/lib -L${prefix}/KartoSDK/lib -lKarto_64"/>
   </export>
 
 </package>
