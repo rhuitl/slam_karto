@@ -1,6 +1,7 @@
 /*
  * slam_karto
  * Copyright (c) 2008, Willow Garage, Inc.
+ * Copyright (c) 2011-2013, Robert Huitl
  *
  * THE WORK (AS DEFINED BELOW) IS PROVIDED UNDER THE TERMS OF THIS CREATIVE
  * COMMONS PUBLIC LICENSE ("CCPL" OR "LICENSE"). THE WORK IS PROTECTED BY
@@ -18,7 +19,7 @@
 
 /**
 
-@mainpage karto_gmapping
+@mainpage slam_karto
 
 @htmlinclude manifest.html
 
@@ -70,15 +71,15 @@ class SlamKarto
     void OnPostLoopClosed(karto::MapperEventArguments& args);
     void OnScansUpdated(karto::EventArguments& args);
 
-    bool getOdomPose(karto::Pose2& karto_pose, const ros::Time& t);
+    bool getOdomPose(const ros::Time& t, karto::Pose2& pose_se2, btTransform& pose);
     bool addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan);
     bool addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
-                 karto::Pose2& karto_pose);
+                 karto::Pose2& scan_pose_se2);
     bool updateMap();
     void updateMapThread();
     void publishTransform();
     void publishPreciseTransform(const tf::StampedTransform& t);
-//    void publishLoop();
+    void publishLoop();
 //    void publishGraphVisualization();
     void publishParticlesVisualization();
     void reconfigurationCallback(karto::KartoConfig &config, uint32_t level);
@@ -129,7 +130,7 @@ class SlamKarto
     double resolution_;
     boost::mutex map_mutex_;
     boost::mutex karto_mutex_;
-    boost::mutex map_to_odom_mutex_;
+    boost::mutex odom_to_map_mutex_;
     double transform_publish_period_;
 
     // Karto bookkeeping
@@ -143,7 +144,7 @@ class SlamKarto
     int laser_count_;
     boost::thread* transform_thread_;
     boost::thread* map_publishing_thread_;
-    tf::StampedTransform map_to_odom_;
+    tf::StampedTransform odom_to_map_;
     unsigned marker_count_;
     bool force_update_;
     ros::Time force_update_time_;
@@ -191,7 +192,7 @@ SlamKarto::SlamKarto() :
   private_nh_.param("transform_publish_period", transform_publish_period_, .05);
 
   // Initialize the stamped transform between odometry and map frame
-  map_to_odom_ = tf::StampedTransform ( tf::Transform::getIdentity(),
+  odom_to_map_ = tf::StampedTransform ( tf::Transform::getIdentity(),
     ros::Time::now(), map_frame_, odom_frame_);
 
   // Set up advertisements and subscriptions
@@ -209,10 +210,10 @@ SlamKarto::SlamKarto() :
   // Subscribe to force_update topic, when receiving a message, a scan is forced to be added
   forceUpdate_subs_ = node_.subscribe("force_update", 100, &SlamKarto::forceUpdateCallback, this);
 
-  // Create a thread to periodically publish the latest map->odom
+  // Create a thread to periodically publish the latest map -> odom
   // transform; it needs to go out regularly, uninterrupted by potentially
   // long periods of computation in our main loop.
-//  transform_thread_ = new boost::thread(boost::bind(&SlamKarto::publishLoop, this));
+  transform_thread_ = new boost::thread(boost::bind(&SlamKarto::publishLoop, this));
 
   map_publishing_thread_ = new boost::thread(boost::bind(&SlamKarto::updateMapThread, this));
 
@@ -277,25 +278,25 @@ SlamKarto::~SlamKarto()
 
 void SlamKarto::OnMessage(karto::MapperEventArguments& args)
 {
-	ROS_INFO_STREAM("********** Message from Karto: " << args.GetEventMessage());
+  ROS_INFO_STREAM("********** Message from Karto: " << args.GetEventMessage());
 }
 
 void SlamKarto::OnPreLoopClosed(karto::MapperEventArguments& args)
 {
-	ROS_DEBUG_STREAM("********** PreLoopClosed from Karto: " << args.GetEventMessage());
+  ROS_DEBUG_STREAM("********** PreLoopClosed from Karto: " << args.GetEventMessage());
 }
 
 void SlamKarto::OnPostLoopClosed(karto::MapperEventArguments& args)
 {
-	ROS_INFO_STREAM("********** PostLoopClosed from Karto: " << args.GetEventMessage());
+  ROS_INFO_STREAM("********** PostLoopClosed from Karto: " << args.GetEventMessage());
 }
 
 void SlamKarto::OnScansUpdated(karto::EventArguments& args)
 {
-	ROS_INFO_STREAM("********** ScansUpdated from Karto");
+  ROS_INFO_STREAM("********** ScansUpdated from Karto");
 }
 
-/*void
+void
 SlamKarto::publishLoop()
 {
   if(transform_publish_period_ == 0)
@@ -308,13 +309,13 @@ SlamKarto::publishLoop()
       publishTransform();    //   send out transforms before the first scan
     r.sleep();
   }
-}*/
+}
 
 void
 SlamKarto::publishTransform()
 {
-  boost::mutex::scoped_lock lock(map_to_odom_mutex_);
-  tfB_.sendTransform(map_to_odom_);
+  boost::mutex::scoped_lock lock(odom_to_map_mutex_);
+  tfB_.sendTransform(odom_to_map_);
 }
 
 void
@@ -417,11 +418,10 @@ SlamKarto::addLaserToKarto(const sensor_msgs::LaserScan::ConstPtr& scan)
 }
 
 bool
-SlamKarto::getOdomPose(karto::Pose2& karto_pose, const ros::Time& t)
+SlamKarto::getOdomPose(const ros::Time& t, karto::Pose2& pose_se2, btTransform& pose)
 {
   // Get the robot's pose
-  tf::Stamped<tf::Pose> ident (btTransform(btQuaternion(0,0,0),
-                                           btVector3(0,0,0)), t, base_frame_);
+  tf::Stamped<tf::Pose> ident(btTransform::getIdentity(), t, base_frame_);
   tf::Stamped<tf::Pose> odom_pose;
   try
   {
@@ -433,10 +433,11 @@ SlamKarto::getOdomPose(karto::Pose2& karto_pose, const ros::Time& t)
     return false;
   }
 
-  double yaw = tf::getYaw(odom_pose.getRotation());
+  pose = odom_pose.asBt();
 
-  karto_pose = karto::Pose2(odom_pose.getOrigin().x(),
-                            odom_pose.getOrigin().y(), yaw);
+  pose_se2 = karto::Pose2(odom_pose.getOrigin().x(),
+                          odom_pose.getOrigin().y(),
+                          tf::getYaw(odom_pose.getRotation()));
   return true;
 }
 
@@ -714,12 +715,34 @@ SlamKarto::updateMap()
   return true;
 }
 
+void dump_btTransform(const std::string& title, const btTransform& t)
+{
+    ROS_INFO_STREAM(title << ": "
+                    << "pos (x,y,z) = ("
+                    << t.getOrigin().x() << ", "
+                    << t.getOrigin().y() << ", "
+                    << t.getOrigin().z() << ") "
+                    << "rot (x,y,z,w) = ("
+                    << t.getRotation().x() << ", "
+                    << t.getRotation().y() << ", "
+                    << t.getRotation().z() << ", "
+                    << t.getRotation().w() << ")"
+    );
+}
+
+
 bool
 SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
-                   karto::Pose2& karto_pose)
+                   karto::Pose2& scan_pose_se2)
 {
-  if(!getOdomPose(karto_pose, scan->header.stamp))
+  btTransform odom_pose;
+
+  // Get the odometry pose for the scan, i.e., the robot's pose
+  // in the odometry frame at the time of the scan.
+  if(!getOdomPose(scan->header.stamp, scan_pose_se2, odom_pose))
     return false;
+
+//  dump_btTransform("odom_pose", odom_pose);
 
   // Create a vector of doubles for karto
   karto::RangeReadingsList readings;
@@ -750,8 +773,8 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
 
   // create localized range scan
   karto::LocalizedRangeScan* range_scan = new karto::LocalizedRangeScan(laserId, readings);
-  range_scan->SetOdometricPose(karto_pose);
-  range_scan->SetCorrectedPose(karto_pose);
+  range_scan->SetOdometricPose(scan_pose_se2);
+  range_scan->SetCorrectedPose(scan_pose_se2);
 
   // save timestamp of scan so it can be extracted later
   range_scan->SetTime(static_cast<int64_t>(scan->header.stamp.toNSec()));
@@ -783,64 +806,56 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
               << "Pose: " << range_scan->GetOdometricPose()
               << " Corrected Pose: " << range_scan->GetCorrectedPose()
               << (range_scan->IsScanMatched() ? " MATCHED" : " not matched"));
-    /*if(!config_.update_map)
-        *w1 << range_scan;
-    else
-           *w2 << range_scan;*/
+
+    // Return updated pose
+    scan_pose_se2 = range_scan->GetCorrectedPose();
 
     if(range_scan->IsScanMatched()) {
-        last_corrected_pose_ = range_scan->GetCorrectedPose();
+      last_corrected_pose_ = scan_pose_se2;
 
-        // Compute the map->odom transform
-        tf::Stamped<tf::Pose> odom_to_map;
-        try
-        {
-          tf_.transformPose(
-              odom_frame_,
-              tf::Stamped<tf::Pose>(
-                btTransform(
-                  btQuaternion(last_corrected_pose_.GetHeading(), 0, 0),
-                  btVector3(last_corrected_pose_.GetX(), last_corrected_pose_.GetY(), 0.0)
-                ).inverse(),
-                scan->header.stamp,
-                base_frame_
-              ),
-              odom_to_map);
-        }
-        catch(tf::TransformException e)
-        {
-          ROS_ERROR_STREAM("Transform from base_link to odom failed: " << e.what());
-          odom_to_map.setIdentity();
-        }
+      //
+      // Publish the correction for the odometry estimate
+      //
+      // We could publish the estimated map position directly, however
+      // this has the drawback that poses at time instances between two
+      // matched scans must be interpolated and odometry information wouldn't
+      // be integrated. Hence, a correction to the odometry estimate at the
+      // time of the scan is computed and published.
+      //
+      // Because ROS TF is interpolating transforms automatically, the current
+      // odometry estimate is used and corrected by interpolating
+      // corrections as determined by this node.
+      //
 
-        // Update the continuous transform
-        map_to_odom_mutex_.lock();
-        map_to_odom_ = tf::StampedTransform (
-                            tf::Transform(tf::Quaternion( odom_to_map.getRotation() ),
-                                          tf::Point( odom_to_map.getOrigin().getX(),
-                                                     odom_to_map.getOrigin().getY(),
-                                                     0. /* never adjust Z */ ) ).inverse(),
-                            scan->header.stamp, map_frame_, odom_frame_);
-        map_to_odom_mutex_.unlock();
+      btTransform corr_pose(
+        btQuaternion(scan_pose_se2.GetHeading(), 0, 0),
+        btVector3(scan_pose_se2.GetX(), scan_pose_se2.GetY(), 0.0)
+      );
+//      dump_btTransform("corr_pose", scan_pose_corrected);
 
-        if(forcing_update) {
-          force_update_ = false;
+      // Compute the odometry -> map transform (= correction for odometry estimates)
+      btTransform odom_to_map = corr_pose * odom_pose.inverse();
+      btTransform map_to_odom = odom_pose * corr_pose.inverse();
 
-          // Publish precise transform only when we have a forced update
-          // Note: we publish the inverse transform because ROS TF hierarchies
-          //       must be a tree, i.e., we cannot publish more than one transform
-          //       with odom_frame_ as parent.
-          publishPreciseTransform(tf::StampedTransform (
-                            tf::Transform(tf::Quaternion( odom_to_map.getRotation() ),
-                                          tf::Point( odom_to_map.getOrigin().getX(),
-                                                     odom_to_map.getOrigin().getY(),
-                                                     0. /* never adjust Z */ ) )/*.inverse()*/,
-//                            force_update_time_ /*scan->header.stamp*/, map_precise_frame_, odom_frame_));
-                            force_update_time_ /*scan->header.stamp*/, odom_frame_, map_precise_frame_));
-        }
+//      dump_btTransform("odom_to_map", odom_to_map);
 
+      // Update the continuous transform
+      odom_to_map_mutex_.lock();
+      odom_to_map_ = tf::StampedTransform(odom_to_map, scan->header.stamp, map_frame_, odom_frame_);
+      odom_to_map_mutex_.unlock();
+
+      if(forcing_update) {
+        force_update_ = false;
+
+        // Publish precise transform only when we have a forced update
+        // Note: we publish the inverse transform because ROS TF hierarchies
+        //       must be a tree, i.e., we cannot publish more than one transform
+        //       with odom_frame_ as parent.
+//        publishPreciseTransform(tf::StampedTransform(map_to_odom, scan->header.stamp, odom_frame_, map_precise_frame_));
+        publishPreciseTransform(tf::StampedTransform(map_to_odom, force_update_time_, odom_frame_, map_precise_frame_));
+      }
     } else {
-        ROS_INFO("Not adding unmatched scan");
+      ROS_INFO("Not adding unmatched scan");
     }
   } else {
     // Karto ignored the scan, e.g., because the distance was too short
@@ -853,9 +868,14 @@ SlamKarto::addScan(const sensor_msgs::LaserScan::ConstPtr& scan,
 
   // Periodically publish the last-known transform, but fill in the current
   // scan's timestamp regardless of whether it has been processed by the
-  // SLAM module.
-  map_to_odom_.stamp_ = scan->header.stamp;
-  publishTransform();
+  // SLAM module. This is required to keep the TF hierarchy intact even when
+  // no new scans have been added for a while (TF buffers old transforms for
+  // a specified time and purges older transforms).
+  // For precise transforms, publishPreciseTransform() publishes /map_precise.
+
+  odom_to_map_mutex_.lock();
+  odom_to_map_.stamp_ = scan->header.stamp;
+  odom_to_map_mutex_.unlock();
 
   return processed;
 }
@@ -981,7 +1001,7 @@ SlamKarto::saveMapperState(karto::SaveMapperState::Request& request,
   }
 
   if(request.bag_filename.length() == 0)
-	  return true;
+    return true;
 
   // Save corrected poses as TF transforms to a bag file that can be replayed
   // later in order to process the dataset with loop closures applied
@@ -993,28 +1013,39 @@ SlamKarto::saveMapperState(karto::SaveMapperState::Request& request,
   const karto::LocalizedLaserScanList& scans = mapper_->GetAllProcessedScans();
 
   for(size_t i = 0; i < scans.Size(); i++) {
-	const karto::LocalizedLaserScan* scan = scans[i].Get();
-    const karto::Pose2& pose = scan->GetCorrectedPose();
+    const karto::LocalizedLaserScan* scan = scans[i].Get();
 
     // Get time from scan
-    ros::Time ros_time = ros::Time().fromNSec(static_cast<uint64_t>(scan->GetTime()));
+    ros::Time scan_time = ros::Time().fromNSec(static_cast<uint64_t>(scan->GetTime()));
+
+    // Compute map -> odometry transform
+    const karto::Pose2& odom_pose_se2 = scan->GetOdometricPose();
+    const karto::Pose2& corr_pose_se2 = scan->GetCorrectedPose();
+
+    btTransform odom_pose(
+      btQuaternion(odom_pose_se2.GetHeading(), 0, 0),
+      btVector3(odom_pose_se2.GetX(), odom_pose_se2.GetY(), 0.0)
+    );
+
+    btTransform corr_pose(
+      btQuaternion(corr_pose_se2.GetHeading(), 0, 0),
+      btVector3(corr_pose_se2.GetX(), corr_pose_se2.GetY(), 0.0)
+    );
+
+    btTransform map_to_odom = odom_pose * corr_pose.inverse();
 
     // Construct transform
-    tf::StampedTransform scan_pos(
-      btTransform(btQuaternion(pose.GetHeading(), 0, 0), btVector3(pose.GetX(), pose.GetY(), 0.0)).inverse(),
-      ros_time,
-      base_frame_,
-      map_precise_frame_
-    );
+    tf::StampedTransform map_to_odom_tf(map_to_odom, scan_time, odom_frame_, map_precise_frame_);
 
     // Wrap in TF message
     geometry_msgs::TransformStamped msg;
-    tf::transformStampedTFToMsg(scan_pos, msg);
+    tf::transformStampedTFToMsg(map_to_odom_tf, msg);
 
     tf::tfMessage tfmsg;
     tfmsg.transforms.push_back(msg);
+
     // Write to bag file
-    bag.write("/tf", ros_time, tfmsg);
+    bag.write("/tf", scan_time, tfmsg);
 
   }
 

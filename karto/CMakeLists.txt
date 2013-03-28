@@ -25,6 +25,7 @@ rosbuild_gensrv()
 # Build the ROS wrapper
 include_directories(${PROJECT_SOURCE_DIR}/KartoSDK/include)
 link_directories(${PROJECT_SOURCE_DIR}/KartoSDK/lib)
+add_definitions(-Wno-ignored-qualifiers -Wno-deprecated-declarations)
 
 rosbuild_add_executable(slam_karto src/slam_karto.cpp)
 rosbuild_link_boost(slam_karto signals)
