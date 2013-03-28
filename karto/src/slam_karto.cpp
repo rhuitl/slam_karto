@@ -243,6 +243,19 @@ SlamKarto::SlamKarto() :
   //updateMap();
   // TODO send out an empty map. Not so easy after all.
 
+//  double ang = (M_PI / 180. * 5);
+//  mapper_->SetParameters("AngleVariancePenalty", ang*ang);
+  mapper_->SetParameters("DistanceVariancePenalty", .1*.1);
+//  mapper_->SetParameters("ScanBufferSize", 400);
+//  mapper_->SetParameters("ScanBufferMaximumScanDistance", 60);
+//  mapper_->SetParameters("CorrelationSearchSpaceDimension", .1);
+//  mapper_->SetParameters("UseResponseExpansion", true);
+//  mapper_->SetParameters("MinimumTravelDistance", .1);
+  mapper_->SetParameters("LoopSearchMaximumDistance", 12.);
+  mapper_->SetParameters("LoopMatchMinimumResponseCoarse", .7);
+  mapper_->SetParameters("LoopMatchMinimumResponseFine", .8);   // with 0.7, a bad loop closure happens on N1 dataset
+
+
   // Set callbacks
   mapper_->Message += karto::delegate(this, &SlamKarto::OnMessage);
   mapper_->PreLoopClosed += karto::delegate(this, &SlamKarto::OnPreLoopClosed);
