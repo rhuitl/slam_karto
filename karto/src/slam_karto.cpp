@@ -1058,7 +1058,7 @@ SlamKarto::saveMapperState(karto::SaveMapperState::Request& request,
     tfmsg.transforms.push_back(msg);
 
     // Write to bag file
-    bag.write("/tf", scan_time, tfmsg);
+    bag.write("/tf_precise", scan_time, tfmsg);
 
   }
 
